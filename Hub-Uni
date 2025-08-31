@@ -1,20 +1,16 @@
 --[[
-  👑 Premium Hub v5.1 — Optimisé (no-lag) • ESP sans box
-  Modules: Speed (+Boost Shift) • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip (toggle/maintien) • InfiniteJump • Hitbox
+  👑 Premium Hub v5.2 — ESP constant (sans FOV) • Speed sans Shift (stable)
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip (toggle/maintien) • InfiniteJump • Hitbox
   Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
 
-  Optimisations majeures:
-   - ESP: pas de SelectionBox (box) • Highlight seul + Billboard optionnel
-   - Amortissement: mise à jour des joueurs par batch • cadence ESP adaptative
-   - Culling: distance + FOV caméra
-   - Hitbox: boucle 0.25s (pas RenderStepped)
-   - Connexions uniques + nettoyage • pas de recalculs inutiles
-
-  Tout est client-side. UI protégée si syn/sentinel.
+  Changements v5.2 :
+   - ESP toujours visible (suppression du culling FOV) — garde le culling distance pour les perfs.
+   - Speed : suppression du boost Shift → vitesse constante, sans pics.
+   - UI : textes/tailles réalignés, plus de mention “Shift”.
 ]]
 
-if _G.__PREMIUM_MENU_V51 then return end
-_G.__PREMIUM_MENU_V51 = true
+if _G.__PREMIUM_MENU_V52 then return end
+_G.__PREMIUM_MENU_V52 = true
 
 -- ===== Services =====
 local Players  = game:GetService("Players")
@@ -44,9 +40,8 @@ local function disconnectAll(tab) for i=#tab,1,-1 do pcall(function() tab[i]:Dis
 local S = {
 	uiVisible = true,
 
-	-- Speed
+	-- Speed (sans Shift)
 	speedOn=false, speed=22, minSpeed=16, maxSpeed=120,
-	speedBoostOn=true, speedBoost=38, speedBoostKey=Enum.KeyCode.LeftShift,
 	speedCon={hb=nil,prop=nil}, humanoid=nil, normalSpeed=nil,
 
 	-- Fly
@@ -55,14 +50,13 @@ local S = {
 	-- Light
 	lightOn=false, lightBackup=nil,
 
-	-- ESP (no SelectionBox)
+	-- ESP (no SelectionBox, pas de FOV)
 	espOn=false, espConn=nil,
-	espHz=20,                      -- cible, sera ajusté automatiquement
+	espHz=20,                      -- cible, ajustée auto selon nb joueurs
 	espShowUsername=true,
-	espMaxDist=2500,               -- par défaut 2.5k studs
+	espMaxDist=2500,
 	espShowAura=true,
 	espShowLabels=true,
-	espFOV=75,                     -- culling FOV (en degrés)
 
 	-- Hitbox
 	hitboxOn=false, hitboxSize=10, hitboxConn=nil, hitboxOrig={},
@@ -81,11 +75,11 @@ local S = {
 }
 
 -- ===== UI =====
-local UI = Instance.new("ScreenGui"); UI.Name="PremiumHubV51"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="PremiumHubV52"; safeParent(UI)
 
 -- Root
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(560, 690)
+Main.Size = UDim2.fromOffset(560, 670)
 Main.BackgroundColor3 = Color3.fromRGB(16,16,20)
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -96,7 +90,7 @@ end
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0,14)
 local stroke=Instance.new("UIStroke",Main) stroke.Thickness=1.2; stroke.Transparency=.15; stroke.Color=Color3.fromRGB(255,255,255)
 
--- Soft shadow (léger)
+-- Soft shadow léger
 local Shadow=Instance.new("ImageLabel")
 Shadow.Image="rbxassetid://5028857084"
 Shadow.ImageTransparency=.52
@@ -112,7 +106,7 @@ Shadow.Parent=Main
 local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,56); Header.BackgroundTransparency=1; Header.Active=true; Header.Parent=Main
 local Title=Instance.new("TextLabel"); Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,10); Title.Size=UDim2.fromOffset(380,32)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=20; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=Color3.fromRGB(240,242,250)
-Title.Text="👑 Premium Hub v5.1 — Optimisé"
+Title.Text="👑 Premium Hub v5.2 — Optimisé"
 Title.Parent=Header
 
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,14)
@@ -197,22 +191,18 @@ local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, 
 end
 
 -- ===== Features =====
--- Speed
+-- Speed (constante, sans Shift)
 local function speed_enable()
 	S.humanoid = getHum()
 	S.normalSpeed = S.humanoid.WalkSpeed
 	disconnect(S.speedCon.hb); disconnect(S.speedCon.prop)
 	S.speedCon.hb = RS.Heartbeat:Connect(function()
 		if S.speedOn and S.humanoid and S.humanoid.Parent then
-			local want = (S.speedBoostOn and UIS:IsKeyDown(S.speedBoostKey)) and S.speedBoost or S.speed
-			if S.humanoid.WalkSpeed ~= want then S.humanoid.WalkSpeed = want end
+			if S.humanoid.WalkSpeed ~= S.speed then S.humanoid.WalkSpeed = S.speed end
 		end
 	end)
 	S.speedCon.prop = S.humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-		if S.speedOn then
-			local want = (S.speedBoostOn and UIS:IsKeyDown(S.speedBoostKey)) and S.speedBoost or S.speed
-			if S.humanoid.WalkSpeed ~= want then S.humanoid.WalkSpeed = want end
-		end
+		if S.speedOn and S.humanoid.WalkSpeed ~= S.speed then S.humanoid.WalkSpeed = S.speed end
 	end)
 end
 local function speed_disable()
@@ -236,27 +226,21 @@ local function fly_disable()
 	if hum then hum.AutoRotate=true; hum.PlatformStand=false; pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end) end
 	S.flyData=nil
 end
-
 local function fly_enable()
 	fly_disable()
 	local char=getChar(); local hrp=char:WaitForChild("HumanoidRootPart"); local hum=char:WaitForChild("Humanoid")
 	S.flyAlive=true
-
 	local Controls=nil
 	pcall(function()
 		local ps=LP:WaitForChild("PlayerScripts"); local ok,PlayerModule=pcall(function() return require(ps:WaitForChild("PlayerModule")) end)
 		if ok and PlayerModule then Controls = PlayerModule:GetControls(); if Controls then Controls:Disable() end end
 	end)
-
 	hum.AutoRotate=false; hum:ChangeState(Enum.HumanoidStateType.Physics); hum.PlatformStand=true
-
 	local collMap={}; for _,d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then collMap[d]=d.CanCollide; d.CanCollide=false end end
 	table.insert(S.flyConns, char.DescendantAdded:Connect(function(d) if d:IsA("BasePart") then collMap[d]=d.CanCollide; d.CanCollide=false end end))
-
 	local att=Instance.new("Attachment", hrp)
 	local lv=Instance.new("LinearVelocity"); lv.Attachment0=att; lv.MaxForce=math.huge; lv.RelativeTo=Enum.ActuatorRelativeTo.World; lv.Parent=hrp
 	S.flyData={hrp=hrp,humanoid=hum,lv=lv,att=att,Controls=Controls,collMap=collMap}
-
 	table.insert(S.flyConns, hum:GetPropertyChangedSignal("PlatformStand"):Connect(function() if S.flyAlive and hum.PlatformStand~=true then hum.PlatformStand=true end end))
 	table.insert(S.flyConns, RS.Stepped:Connect(function() if S.flyAlive then hrp.AssemblyAngularVelocity=Vector3.zero end end))
 	table.insert(S.flyConns, RS.RenderStepped:Connect(function()
@@ -290,7 +274,7 @@ local function light_disable()
 	if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end
 end
 
--- ===== ESP (Highlight + labels) =====
+-- ===== ESP (Highlight + labels, pas de FOV) =====
 local ROLE_COLORS = {
 	Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60),
 	Innocent=Color3.fromRGB(64,128,255),
@@ -371,26 +355,13 @@ local function ensureESPFor(p)
 	if not reg or reg.char~=char or not reg.bb or not reg.hl then buildESPFor(p,char) end
 end
 
-local function withinFOV(camPos, camLook, targetPos, cosHalf)
-	local dir = (targetPos - camPos).Unit
-	return (dir:Dot(camLook) >= cosHalf)
-end
-
 local ESP_tickIndex = 1
 local function esp_update()
-	local cam=workspace.CurrentCamera; if not cam then return end
 	local myC=LP.Character; if not myC then return end
 	local myHRP=myC:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
+	local playersList = S._playersCache; if #playersList==0 then return end
 
-	local playersList = S._playersCache
-	if #playersList==0 then return end
-
-	local halfAngle = math.rad(math.clamp(S.espFOV, 1, 179)) * 0.5
-	local cosHalf = math.cos(halfAngle)
-	local camPos = cam.CFrame.Position
-	local camLook = cam.CFrame.LookVector
-
-	-- batch: on traite ~1/3 des joueurs par tick pour lisser
+	-- batch: ~1/3 des joueurs par tick
 	local batchSize = math.clamp(math.floor(#playersList/3 + 0.5), 1, math.max(1,#playersList))
 	local startIdx = ESP_tickIndex
 	local endIdx = math.min(#playersList, startIdx + batchSize - 1)
@@ -409,33 +380,28 @@ local function esp_update()
 					if dist > S.espMaxDist then
 						reg.bb.Enabled=false; reg.hl.Enabled=false
 					else
-						-- FOV culling
-						if not withinFOV(camPos, camLook, tHRP.Position, cosHalf) then
-							reg.bb.Enabled=false; reg.hl.Enabled=false
-						else
-							-- couleur
-							local col = colorFor(p,char)
-							if not reg.lastColor or reg.lastColor.r~=col.r or reg.lastColor.g~=col.g or reg.lastColor.b~=col.b then
-								reg.lastColor = col
-								reg.hl.OutlineColor = col
-								reg.nameLbl.TextColor3 = col
-								reg.distLbl.TextColor3 = col
-							end
-							-- pseudo
-							local display = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
-							local wantName = S.espShowUsername and (display.." (@"..p.Name..")") or display
-							if reg.lastName ~= wantName then reg.nameLbl.Text = wantName; reg.lastName = wantName end
-							-- distance (arrondi)
-							local di = (dist >= 0) and math.floor(dist + 0.5) or 0
-							if reg.lastDist ~= di then reg.distLbl.Text = tostring(di).." studs"; reg.lastDist = di end
+						-- couleur
+						local col = colorFor(p,char)
+						if not reg.lastColor or reg.lastColor.r~=col.r or reg.lastColor.g~=col.g or reg.lastColor.b~=col.b then
+							reg.lastColor = col
+							reg.hl.OutlineColor = col
+							reg.nameLbl.TextColor3 = col
+							reg.distLbl.TextColor3 = col
+						end
+						-- pseudo
+						local display = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
+						local wantName = S.espShowUsername and (display.." (@"..p.Name..")") or display
+						if reg.lastName ~= wantName then reg.nameLbl.Text = wantName; reg.lastName = wantName end
+						-- distance (arrondi)
+						local di = (dist >= 0) and math.floor(dist + 0.5) or 0
+						if reg.lastDist ~= di then reg.distLbl.Text = tostring(di).." studs"; reg.lastDist = di end
 
-							reg.hl.Enabled = S.espShowAura
-							reg.bb.Enabled = S.espShowLabels
+						reg.hl.Enabled = S.espShowAura
+						reg.bb.Enabled = S.espShowLabels
 
-							-- parent billboard sûr
-							if reg.bb.Parent == reg.char or (not reg.bb.Parent) or (not reg.bb.Parent.Parent) then
-								local h = getHeadOrPart(char); if h then reg.bb.Parent = h end
-							end
+						-- sécurité parent billboard
+						if reg.bb.Parent == reg.char or (not reg.bb.Parent) or (not reg.bb.Parent.Parent) then
+							local h = getHeadOrPart(char); if h then reg.bb.Parent = h end
 						end
 					end
 				end
@@ -459,7 +425,7 @@ Players.PlayerRemoving:Connect(rebuildPlayersCache)
 local function esp_enable()
 	if S.espConn then return end
 	for _,pl in ipairs(Players:GetPlayers()) do if pl~=LP and pl.Character then buildESPFor(pl, pl.Character) end end
-	-- cadence adaptative selon le nombre de joueurs (plus on est, plus on baisse les Hz)
+	-- cadence adaptative selon le nombre de joueurs
 	local function targetHz()
 		local n = math.max(1, #S._playersCache)
 		if n > 20 then return 8
@@ -470,13 +436,9 @@ local function esp_enable()
 	local acc, currHz = 0, targetHz()
 	S.espConn = RS.Heartbeat:Connect(function(dt)
 		acc += dt
-		-- recalibre la cadence lentement
 		if math.random() < 0.1 then currHz = targetHz() end
 		local step = 1/math.max(1,currHz)
-		if acc >= step then
-			esp_update()
-			acc = 0
-		end
+		if acc >= step then esp_update(); acc = 0 end
 	end)
 	Players.PlayerAdded:Connect(function(p)
 		p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end)
@@ -577,10 +539,9 @@ end
 -- ===== UI Cards =====
 -- Speed
 do
-	local Card=makeCard("⚡ Vitesse","Maintient ta vitesse (Boost en maintenant Shift).",174)
+	local Card=makeCard("⚡ Vitesse","Vitesse constante et stable (pas de Shift).",132)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Vitesse",S.minSpeed,S.maxSpeed,S.speed,56,function(v) S.speed=v end)
-	makeSlider(Card,"Boost (Shift)",S.minSpeed,S.maxSpeed,S.speedBoost,118,function(v) S.speedBoost=v end)
 	Toggle.MouseButton1Click:Connect(function() S.speedOn=not S.speedOn; setT(S.speedOn); if S.speedOn then speed_enable() else speed_disable() end end)
 end
 
@@ -598,9 +559,9 @@ do local Card=makeCard("💡 Lumière","Désactive ombres, enlève brouillard, +
 	Toggle.MouseButton1Click:Connect(function() S.lightOn=not S.lightOn; setT(S.lightOn); if S.lightOn then light_enable() else light_disable() end end)
 end
 
--- ESP (no box)
+-- ESP (no box, pas de FOV)
 do
-	local Card=makeCard("🧭 ESP Joueurs (sans box)","Highlight + pseudo + distance. Culling distance/FOV. Cadence adaptative.",260)
+	local Card=makeCard("🧭 ESP Joueurs","Highlight + pseudo + distance. Distance max réglable. Cadence adaptative.",230)
 	local Toggle,setT=makeToggle(Card,false)
 
 	local Row1=Instance.new("Frame"); Row1.BackgroundTransparency=1; Row1.Position=UDim2.fromOffset(14,56); Row1.Size=UDim2.new(1,-28,0,28); Row1.Parent=Card
@@ -618,12 +579,8 @@ do
 
 	makeSlider(Card,"Distance max",50,5000,S.espMaxDist,130,function(v) S.espMaxDist=v end,function(v) return v.." studs" end)
 	makeSlider(Card,"Fréquence cible (Hz)",8,60,S.espHz,192,function(v) S.espHz=v end)
-	makeSlider(Card,"FOV (°)",30,120,S.espFOV,224,function(v) S.espFOV=v end)
 
-	Toggle.MouseButton1Click:Connect(function()
-		S.espOn=not S.espOn; setT(S.espOn)
-		if S.espOn then esp_enable() else esp_disable() end
-	end)
+	Toggle.MouseButton1Click:Connect(function() S.espOn=not S.espOn; setT(S.espOn); if S.espOn then esp_enable() else esp_disable() end end)
 end
 
 -- Hitbox
@@ -691,7 +648,6 @@ do
 	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild() end end)
 	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild() end end)
 	tpBtn.MouseButton1Click:Connect(function() if S.tpSelectedUserId then tpToPlayerId(S.tpSelectedUserId) end end)
-	UIS.InputBegan:Connect(function(input,gp) if gp then return end; if input.KeyCode==Enum.KeyCode.G and S.tpSelectedUserId then tpToPlayerId(S.tpSelectedUserId) end end)
 
 	RS.Heartbeat:Connect(function() if S.tpFollow and S.tpSelectedUserId then tpToPlayerId(S.tpSelectedUserId) end end)
 	followToggle.MouseButton1Click:Connect(function() S.tpFollow = not S.tpFollow; setFollow(S.tpFollow) end)
@@ -753,9 +709,9 @@ UIS.InputBegan:Connect(function(io,gp)
 	end
 end)
 
--- Entrée agréable
+-- petite anim d'entrée
 Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset+20)
 Main.BackgroundTransparency = .06
 tween(Main,.18,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Premium Hub v5.1] Optimisations actives. ESP sans box. Cadence adaptative. 👍")
+print("[Premium Hub v5.2] ESP sans FOV, Speed sans Shift — stable et fluide ✅")
