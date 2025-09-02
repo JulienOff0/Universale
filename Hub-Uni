@@ -1,16 +1,18 @@
 --[[
-  👑 Premium Hub v5.3 — ESP constant • Speed stable • + Aimbot (Head)
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • **Aimbot Head**
+  👑 Premium Hub v5.4 — ESP constant • Speed stable • Aimbot Hard-Lock (Head) • NoClip • Infinite Jump
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head
   Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
 
-  Nouveautés v5.3 :
-   - **Aimbot (Head-only)** : sélection dans une **liste** avec Refresh, vise en continu la **tête**.
-   - Options Aimbot : **Hold RMB** (maintenir clic droit pour activer), **Lissage** (0 = snap, 100 = très doux).
-   - Reste identique à v5.2 (ESP sans FOV, Speed sans Shift, optimisations anti-lag).
+  Nouveautés v5.4 :
+   - **Aimbot Hard-Lock** : colle la caméra à la **tête** (zéro retard), même à haute vitesse.
+     • Caméra forcée en **Scriptable** pendant l’aim (on **sauvegarde** puis **restore** ton mode caméra).
+     • **Snap** par défaut (0% lissage) + **prédiction** optionnelle (vitesse Head/HRP).
+     • Liste de cibles avec Refresh (comme TP), Hold RMB optionnel.
+   - **NoClip** + **Infinite Jump** présents et stables.
 ]]
 
-if _G.__PREMIUM_MENU_V53 then return end
-_G.__PREMIUM_MENU_V53 = true
+if _G.__PREMIUM_MENU_V54 then return end
+_G.__PREMIUM_MENU_V54 = true
 
 -- ===== Services =====
 local Players  = game:GetService("Players")
@@ -18,8 +20,8 @@ local UIS      = game:GetService("UserInputService")
 local RS       = game:GetService("RunService")
 local TS       = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
-
 local LP = Players.LocalPlayer
+
 local function getChar() return LP.Character or LP.CharacterAdded:Wait() end
 local function getHum()  return (getChar()):WaitForChild("Humanoid") end
 
@@ -51,8 +53,7 @@ local S = {
 	lightOn=false, lightBackup=nil,
 
 	-- ESP (no SelectionBox, pas de FOV)
-	espOn=false, espConn=nil,
-	espHz=20, espShowUsername=true, espMaxDist=2500, espShowAura=true, espShowLabels=true,
+	espOn=false, espConn=nil, espHz=20, espShowUsername=true, espMaxDist=2500, espShowAura=true, espShowLabels=true,
 
 	-- Hitbox
 	hitboxOn=false, hitboxSize=10, hitboxConn=nil, hitboxOrig={},
@@ -66,24 +67,27 @@ local S = {
 	-- Infinite Jump
 	ijOn=false, ijBoost=55, ijConn=nil,
 
-	-- Aimbot
+	-- Aimbot (Hard-Lock)
 	aimOn=false, aimConn=nil,
 	aimTargetUserId=nil, aimTargetLabel=nil,
 	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2, -- RMB
-	aimSmooth=60, -- 0..100 (0=snap, 100=très doux)
-	aimMaxDist=6000, -- sécurité
-	aimHeadOffset=Vector3.new(0,0.2,0), -- léger offset haut de tête
+	aimSmooth=0,            -- % (0 = snap instant, recommandé)
+	aimPredict=0.5,         -- facteur de prédiction (0=off, 0.5 par défaut)
+	aimMaxDist=12000,
+	aimHeadOffset=Vector3.new(0,0.2,0), -- haut de tête
+	aimLockCam=true,        -- force CameraType=Scriptable pendant l’aim
+	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
 
 	-- internals
 	_playersCache = {},
 }
 
 -- ===== UI =====
-local UI = Instance.new("ScreenGui"); UI.Name="PremiumHubV53"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="PremiumHubV54"; safeParent(UI)
 
 -- Root
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(560, 760)
+Main.Size = UDim2.fromOffset(560, 800)
 Main.BackgroundColor3 = Color3.fromRGB(16,16,20)
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -93,33 +97,21 @@ do local vs=workspace.CurrentCamera.ViewportSize
 end
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0,14)
 local stroke=Instance.new("UIStroke",Main) stroke.Thickness=1.2; stroke.Transparency=.15; stroke.Color=Color3.fromRGB(255,255,255)
-
--- Soft shadow
-local Shadow=Instance.new("ImageLabel")
-Shadow.Image="rbxassetid://5028857084"
-Shadow.ImageTransparency=.52
-Shadow.ScaleType=Enum.ScaleType.Slice
-Shadow.SliceCenter=Rect.new(24,24,276,276)
-Shadow.AnchorPoint=Vector2.new(.5,.5)
-Shadow.Position=UDim2.fromScale(.5,.5)
-Shadow.Size=UDim2.new(1,36,1,36)
-Shadow.BackgroundTransparency=1
-Shadow.Parent=Main
+local Shadow=Instance.new("ImageLabel"); Shadow.Image="rbxassetid://5028857084"; Shadow.ImageTransparency=.52; Shadow.ScaleType=Enum.ScaleType.Slice
+Shadow.SliceCenter=Rect.new(24,24,276,276); Shadow.AnchorPoint=Vector2.new(.5,.5); Shadow.Position=UDim2.fromScale(.5,.5)
+Shadow.Size=UDim2.new(1,36,1,36); Shadow.BackgroundTransparency=1; Shadow.Parent=Main
 
 -- Header
 local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,56); Header.BackgroundTransparency=1; Header.Active=true; Header.Parent=Main
-local Title=Instance.new("TextLabel"); Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,10); Title.Size=UDim2.fromOffset(380,32)
+local Title=Instance.new("TextLabel"); Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,10); Title.Size=UDim2.fromOffset(420,32)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=20; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=Color3.fromRGB(240,242,250)
-Title.Text="👑 Premium Hub v5.3 — Optimisé + Aimbot"; Title.Parent=Header
-
+Title.Text="👑 Premium Hub v5.4 — Aimbot Hard-Lock"; Title.Parent=Header
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,14)
 Hint.Size=UDim2.fromOffset(330,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=Color3.fromRGB(185,190,205)
 Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P'; Hint.Parent=Header
-
 local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,10); HideBtn.Size=UDim2.fromOffset(30,30)
 HideBtn.Text="✕"; HideBtn.TextSize=18; HideBtn.Font=Enum.Font.GothamBold; HideBtn.TextColor3=Color3.fromRGB(235,240,255); HideBtn.AutoButtonColor=true
 HideBtn.BackgroundColor3=Color3.fromRGB(55,60,75); HideBtn.Parent=Header; Instance.new("UICorner",HideBtn).CornerRadius=UDim.new(1,0); Instance.new("UIStroke",HideBtn).Transparency=.35
-
 local PanicBtn=Instance.new("TextButton"); PanicBtn.AnchorPoint=Vector2.new(1,0); PanicBtn.Position=UDim2.new(1,-50,0,10); PanicBtn.Size=UDim2.fromOffset(30,30)
 PanicBtn.Text="⚡"; PanicBtn.TextSize=16; PanicBtn.Font=Enum.Font.GothamBold; PanicBtn.TextColor3=Color3.fromRGB(255,255,255)
 PanicBtn.BackgroundColor3=Color3.fromRGB(210,70,70); PanicBtn.Parent=Header; Instance.new("UICorner",PanicBtn).CornerRadius=UDim.new(1,0)
@@ -136,7 +128,7 @@ VList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshCanvas)
 -- UI helpers
 local function makeBadge(text)
 	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12
-	B.TextColor3=Color3.fromRGB(205,215,240); B.Text= text; B.Size=UDim2.fromOffset(180,16); return B
+	B.TextColor3=Color3.fromRGB(205,215,240); B.Text= text; B.Size=UDim2.fromOffset(220,16); B.TextXAlignment=Enum.TextXAlignment.Left; return B
 end
 local function makeCard(titleText, subtitleText, height, icon)
 	local Card=Instance.new("Frame"); Card.Size=UDim2.new(1,0,0,height); Card.BackgroundColor3=Color3.fromRGB(22,22,27); Card.BorderSizePixel=0; Card.Active=true; Card.Parent=Content
@@ -210,7 +202,7 @@ local function speed_disable()
 end
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- Fly (idem v5.2)
+-- Fly
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -289,52 +281,17 @@ local function buildESPFor(p, char)
 	if not char or p==LP then return end
 	local reg = ESP_REG[p]; if not reg then reg={conns={}}; ESP_REG[p]=reg else disconnectAll(reg.conns) end; reg.char=char
 	local head = getHeadOrPart(char); reg.head = head
-	local hl = char:FindFirstChild("ESP_Highlight")
-	if not hl then
-		hl = Instance.new("Highlight")
-		hl.Name = "ESP_Highlight"
-		hl.FillTransparency = 1
-		hl.OutlineTransparency = 0
-		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-		hl.Parent = char
-	end
+	local hl = char:FindFirstChild("ESP_Highlight"); if not hl then hl=Instance.new("Highlight"); hl.Name="ESP_Highlight"; hl.FillTransparency=1; hl.OutlineTransparency=0; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=char end
 	reg.hl = hl
 	clearBillboards(char)
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "ESP_BBG"
-	bb.Size = UDim2.new(0, 220, 0, 40)
-	bb.StudsOffset = Vector3.new(0, 3, 0)
-	bb.AlwaysOnTop = true
-	bb.MaxDistance = 5000
+	local bb = Instance.new("BillboardGui"); bb.Name="ESP_BBG"; bb.Size=UDim2.new(0,220,0,40); bb.StudsOffset=Vector3.new(0,3,0); bb.AlwaysOnTop=true; bb.MaxDistance=5000
 	bb.Parent = (head and head:IsA("BasePart")) and head or (char:FindFirstChild("HumanoidRootPart") or char)
-	local nameLbl = Instance.new("TextLabel")
-	nameLbl.BackgroundTransparency = 1
-	nameLbl.Size = UDim2.new(1, 0, 0.5, 0)
-	nameLbl.Font = Enum.Font.GothamBold
-	nameLbl.TextScaled = true
-	nameLbl.TextStrokeTransparency = 0.5
-	nameLbl.TextColor3 = Color3.fromRGB(255,255,255)
-	nameLbl.Parent = bb
-	local distLbl = Instance.new("TextLabel")
-	distLbl.BackgroundTransparency = 1
-	distLbl.Position = UDim2.new(0, 0, 0.5, 0)
-	distLbl.Size = UDim2.new(1, 0, 0.5, 0)
-	distLbl.Font = Enum.Font.Gotham
-	distLbl.TextScaled = true
-	distLbl.TextStrokeTransparency = 0.5
-	distLbl.TextColor3 = Color3.fromRGB(225,230,235)
-	distLbl.Parent = bb
+	local nameLbl = Instance.new("TextLabel"); nameLbl.BackgroundTransparency=1; nameLbl.Size=UDim2.new(1,0,0.5,0); nameLbl.Font=Enum.Font.GothamBold; nameLbl.TextScaled=true; nameLbl.TextStrokeTransparency=.5; nameLbl.TextColor3=Color3.fromRGB(255,255,255); nameLbl.Parent=bb
+	local distLbl = Instance.new("TextLabel"); distLbl.BackgroundTransparency=1; distLbl.Position=UDim2.new(0,0,0.5,0); distLbl.Size=UDim2.new(1,0,0.5,0); distLbl.Font=Enum.Font.Gotham; distLbl.TextScaled=true; distLbl.TextStrokeTransparency=.5; distLbl.TextColor3=Color3.fromRGB(225,230,235); distLbl.Parent=bb
 	reg.bb, reg.nameLbl, reg.distLbl = bb, nameLbl, distLbl
 	reg.lastName, reg.lastDist, reg.lastColor = "", -1, nil
-	table.insert(reg.conns, char.DescendantAdded:Connect(function(d)
-		if d.Name=="Head" and d:IsA("BasePart") then
-			if reg.bb and reg.bb.Parent ~= d then reg.bb.Parent = d end
-			reg.head = d
-		end
-	end))
-	table.insert(reg.conns, char.AncestryChanged:Connect(function(_, parent)
-		if parent==nil then disconnectAll(reg.conns) end
-	end))
+	table.insert(reg.conns, char.DescendantAdded:Connect(function(d) if d.Name=="Head" and d:IsA("BasePart") then if reg.bb and reg.bb.Parent ~= d then reg.bb.Parent = d end; reg.head = d end end))
+	table.insert(reg.conns, char.AncestryChanged:Connect(function(_, parent) if parent==nil then disconnectAll(reg.conns) end end))
 end
 local function ensureESPFor(p) local char=p.Character; if not char then return end; local reg=ESP_REG[p]; if not reg or reg.char~=char or not reg.bb or not reg.hl then buildESPFor(p,char) end end
 
@@ -353,27 +310,21 @@ local function esp_update()
 			local reg=ESP_REG[p]; local char=p and p.Character
 			if reg and char and reg.hl and reg.bb then
 				local tHRP = char:FindFirstChild("HumanoidRootPart")
-				if not tHRP then
-					reg.bb.Enabled=false; reg.hl.Enabled=false
+				if not tHRP then reg.bb.Enabled=false; reg.hl.Enabled=false
 				else
 					local dist=(myHRP.Position - tHRP.Position).Magnitude
-					if dist > S.espMaxDist then
-						reg.bb.Enabled=false; reg.hl.Enabled=false
+					if dist > S.espMaxDist then reg.bb.Enabled=false; reg.hl.Enabled=false
 					else
 						local col = colorFor(p,char)
 						if not reg.lastColor or reg.lastColor.r~=col.r or reg.lastColor.g~=col.g or reg.lastColor.b~=col.b then
-							reg.lastColor = col
-							reg.hl.OutlineColor = col
-							reg.nameLbl.TextColor3 = col
-							reg.distLbl.TextColor3 = col
+							reg.lastColor = col; reg.hl.OutlineColor = col; reg.nameLbl.TextColor3 = col; reg.distLbl.TextColor3 = col
 						end
 						local display = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
 						local wantName = S.espShowUsername and (display.." (@"..p.Name..")") or display
 						if reg.lastName ~= wantName then reg.nameLbl.Text = wantName; reg.lastName = wantName end
 						local di = (dist >= 0) and math.floor(dist + 0.5) or 0
 						if reg.lastDist ~= di then reg.distLbl.Text = tostring(di).." studs"; reg.lastDist = di end
-						reg.hl.Enabled = S.espShowAura
-						reg.bb.Enabled = S.espShowLabels
+						reg.hl.Enabled = S.espShowAura; reg.bb.Enabled = S.espShowLabels
 						if reg.bb.Parent == reg.char or (not reg.bb.Parent) or (not reg.bb.Parent.Parent) then
 							local h = getHeadOrPart(char); if h then reg.bb.Parent = h end
 						end
@@ -382,8 +333,7 @@ local function esp_update()
 			end
 		end
 	end
-	ESP_tickIndex = endIdx + 1
-	if ESP_tickIndex > #playersList then ESP_tickIndex = 1 end
+	ESP_tickIndex = endIdx + 1; if ESP_tickIndex > #playersList then ESP_tickIndex = 1 end
 end
 
 local function rebuildPlayersCache()
@@ -398,72 +348,22 @@ Players.PlayerRemoving:Connect(rebuildPlayersCache)
 local function esp_enable()
 	if S.espConn then return end
 	for _,pl in ipairs(Players:GetPlayers()) do if pl~=LP and pl.Character then buildESPFor(pl, pl.Character) end end
-	local function targetHz()
-		local n = math.max(1, #S._playersCache)
-		if n > 20 then return 8 elseif n > 10 then return 12 elseif n > 5 then return 16 else return S.espHz end
-	end
+	local function targetHz() local n=math.max(1,#S._playersCache); if n>20 then return 8 elseif n>10 then return 12 elseif n>5 then return 16 else return S.espHz end end
 	local acc, currHz = 0, targetHz()
 	S.espConn = RS.Heartbeat:Connect(function(dt)
-		acc += dt
-		if math.random() < 0.1 then currHz = targetHz() end
-		local step = 1/math.max(1,currHz)
-		if acc >= step then esp_update(); acc = 0 end
+		acc += dt; if math.random()<0.1 then currHz = targetHz() end
+		local step = 1/math.max(1,currHz); if acc >= step then esp_update(); acc = 0 end
 	end)
-	Players.PlayerAdded:Connect(function(p)
-		p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end)
-		if p.Character then buildESPFor(p,p.Character) end
-	end)
+	Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end) if p.Character then buildESPFor(p,p.Character) end end)
 end
-local function esp_disable()
-	disconnect(S.espConn); S.espConn=nil
-	for _,reg in pairs(ESP_REG) do
-		if reg.bb then reg.bb.Enabled=false end
-		if reg.hl then reg.hl.Enabled=false end
-	end
-end
+local function esp_disable() disconnect(S.espConn); S.espConn=nil; for _,reg in pairs(ESP_REG) do if reg.bb then reg.bb.Enabled=false end; if reg.hl then reg.hl.Enabled=false end end end
 
 -- ===== Hitbox (0.25s) =====
-local function rememberHRP(hrp)
-	if not hrp or S.hitboxOrig[hrp] then return end
-	S.hitboxOrig[hrp] = { Size = hrp.Size, Transparency = hrp.Transparency, Material = hrp.Material, CanCollide = hrp.CanCollide, BrickColor = hrp.BrickColor }
-end
-local function applyHitboxTo(hrp)
-	if not hrp then return end
-	rememberHRP(hrp)
-	hrp.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
-	hrp.Transparency = 0.7
-	hrp.BrickColor = BrickColor.new("Really red")
-	hrp.Material = Enum.Material.Neon
-	hrp.CanCollide = false
-end
-local function restoreAllHitbox()
-	for hrp,orig in pairs(S.hitboxOrig) do
-		if hrp and hrp.Parent and orig then
-			pcall(function()
-				hrp.Size = orig.Size; hrp.Transparency = orig.Transparency; hrp.Material = orig.Material; hrp.CanCollide = orig.CanCollide; hrp.BrickColor = orig.BrickColor
-			end)
-		end
-	end
-	S.hitboxOrig = {}
-end
-local function hitbox_tick()
-	for _,pl in ipairs(S._playersCache) do
-		local c = pl.Character
-		if c then local hrp=c:FindFirstChild("HumanoidRootPart"); if hrp then pcall(applyHitboxTo, hrp) end end
-	end
-end
-local function hitbox_enable()
-	if S.hitboxConn then return end
-	hitbox_tick()
-	S.hitboxConn = RS.Heartbeat:Connect(function(dt)
-		local acc = (S.__hbacc or 0) + dt
-		if acc >= 0.25 then hitbox_tick(); acc = 0 end
-		S.__hbacc = acc
-	end)
-	Players.PlayerAdded:Connect(function(p)
-		p.CharacterAdded:Connect(function(c) task.wait(0.1); local hrp = c:FindFirstChild("HumanoidRootPart"); if hrp then rememberHRP(hrp) end end)
-	end)
-end
+local function rememberHRP(hrp) if not hrp or S.hitboxOrig[hrp] then return end; S.hitboxOrig[hrp] = { Size=hrp.Size, Transparency=hrp.Transparency, Material=hrp.Material, CanCollide=hrp.CanCollide, BrickColor=hrp.BrickColor } end
+local function applyHitboxTo(hrp) if not hrp then return end; rememberHRP(hrp); hrp.Size=Vector3.new(S.hitboxSize,S.hitboxSize,S.hitboxSize); hrp.Transparency=.7; hrp.BrickColor=BrickColor.new("Really red"); hrp.Material=Enum.Material.Neon; hrp.CanCollide=false end
+local function restoreAllHitbox() for hrp,orig in pairs(S.hitboxOrig) do if hrp and hrp.Parent and orig then pcall(function() hrp.Size=orig.Size; hrp.Transparency=orig.Transparency; hrp.Material=orig.Material; hrp.CanCollide=orig.CanCollide; hrp.BrickColor=orig.BrickColor end) end end; S.hitboxOrig={} end
+local function hitbox_tick() for _,pl in ipairs(S._playersCache) do local c=pl.Character; if c then local hrp=c:FindFirstChild("HumanoidRootPart"); if hrp then pcall(applyHitboxTo,hrp) end end end end
+local function hitbox_enable() if S.hitboxConn then return end; hitbox_tick(); S.hitboxConn = RS.Heartbeat:Connect(function(dt) local acc=(S.__hbacc or 0)+dt; if acc>=0.25 then hitbox_tick(); acc=0 end; S.__hbacc=acc end) end
 local function hitbox_disable() disconnect(S.hitboxConn); S.hitboxConn=nil; restoreAllHitbox() end
 
 -- ===== NoClip =====
@@ -489,34 +389,86 @@ end
 if LP.Character then ij_bind(LP.Character) end
 LP.CharacterAdded:Connect(function(c) if S.ijOn then ij_bind(c) end end)
 
--- ===== Aimbot (Head) =====
+-- ===== Aimbot (Hard-Lock Head) =====
 local function getTargetHead()
 	if not S.aimTargetUserId then return nil end
 	local p = Players:GetPlayerByUserId(S.aimTargetUserId); if not p then return nil end
 	local c = p.Character; if not c then return nil end
-	local head = c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
-	return head
+	return c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
 end
+local function getVel(part)
+	if not part then return Vector3.zero end
+	if part:IsA("BasePart") then return part.AssemblyLinearVelocity end
+	return Vector3.zero
+end
+local function getHRPFrom(plr)
+	local c=plr and plr.Character; return c and c:FindFirstChild("HumanoidRootPart") or nil
+end
+
+local function aim_isActive()
+	if not S.aimOn then return false end
+	if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return false end
+	if not S.aimTargetUserId then return false end
+	return true
+end
+
+local function cam_lock()
+	if S.__camLocked or not S.aimLockCam then return end
+	local cam=workspace.CurrentCamera
+	S.__prevCamType = cam.CameraType
+	S.__prevCamSubject = cam.CameraSubject
+	cam.CameraType = Enum.CameraType.Scriptable
+	S.__camLocked = true
+end
+local function cam_unlock()
+	if not S.__camLocked then return end
+	local cam=workspace.CurrentCamera
+	if S.__prevCamType then cam.CameraType = S.__prevCamType end
+	if S.__prevCamSubject then cam.CameraSubject = S.__prevCamSubject end
+	S.__prevCamType, S.__prevCamSubject = nil, nil
+	S.__camLocked = false
+end
+
 local function aimbot_disable()
-	disconnect(S.aimConn); S.aimConn=nil
+	disconnect(S.aimConn); S.aimConn=nil; cam_unlock()
 end
+
 local function aimbot_enable()
 	if S.aimConn then return end
 	S.aimConn = RS.RenderStepped:Connect(function(dt)
-		if not S.aimOn then return end
-		if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return end
 		local cam = workspace.CurrentCamera; if not cam then return end
+		if not aim_isActive() then cam_unlock(); return end
+
+		-- lock cam to avoid default controller fighting us
+		cam_lock()
+
 		local head = getTargetHead(); if not head or not head.Parent then return end
-		local myChar = LP.Character; local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
-		if myHum and myHum.Health<=0 then return end
-		local headPos = head.Position + S.aimHeadOffset
-		local camPos  = cam.CFrame.Position
-		-- option distance sécurité
-		if (camPos - headPos).Magnitude > S.aimMaxDist then return end
-		local want = CFrame.lookAt(camPos, headPos)
-		local base = math.clamp(S.aimSmooth/100, 0, 1) -- 0..1
-		local alpha = 1 - math.pow(1 - base, dt*60)    -- indépendant du framerate
-		if alpha <= 0 then cam.CFrame = want else cam.CFrame = cam.CFrame:Lerp(want, math.clamp(alpha,0,1)) end
+		-- sécurité distance
+		local camPos = cam.CFrame.Position
+		local targetPos = head.Position + S.aimHeadOffset
+		if (camPos - targetPos).Magnitude > S.aimMaxDist then return end
+
+		-- prediction (utilise Head vel sinon HRP vel)
+		if S.aimPredict and S.aimPredict > 0 then
+			local vel = getVel(head)
+			if vel.Magnitude < 0.1 then
+				local pObj = Players:GetPlayerByUserId(S.aimTargetUserId)
+				local hrp = getHRPFrom(pObj)
+				if hrp then vel = hrp.AssemblyLinearVelocity end
+			end
+			targetPos = targetPos + vel * (math.clamp(S.aimPredict,0,1) * dt * 60/60)
+		end
+
+		-- snap or smooth
+		local want = CFrame.lookAt(camPos, targetPos)
+		local s = math.clamp(S.aimSmooth/100, 0, 1)
+		if s <= 0 then
+			cam.CFrame = want
+		else
+			-- framerate-indep lerp
+			local alpha = 1 - math.pow(1 - s, dt*60)
+			cam.CFrame = cam.CFrame:Lerp(want, math.clamp(alpha,0,1))
+		end
 	end)
 end
 
@@ -571,8 +523,8 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
 end
 
--- TP + Follow (identique v5.2)
-local function listOthersTP() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
+-- TP + Follow
+local function listOthers() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
 do
 	local Card=makeCard("🧭 Téléportation","Choisis un joueur puis TP. Mode Follow (suivi continu).",230)
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,58); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
@@ -598,7 +550,7 @@ do
 	local function clearList() for _,ch in ipairs(listHolder:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
 	local function rebuild()
 		clearList()
-		local others=listOthersTP()
+		local others=listOthers()
 		if #others==0 then emptyLabel.Visible=true else
 			for _,p in ipairs(others) do
 				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
@@ -640,26 +592,35 @@ end
 -- **AIMBOT UI**
 local function listOthersAim() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
 do
-	local Card=makeCard("🎯 Aimbot (Head-only)","Sélectionne une cible → la caméra vise la **tête**. RMB (option) pour tenir.",268)
+	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste → sélection → la caméra **colle** la tête (snap). RMB optionnel.",320)
 	local Toggle,setT=makeToggle(Card,false)
+
+	-- Ligne 1 : Choix cible + Refresh
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,58); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
 	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
-
 	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=Color3.fromRGB(255,255,255)
 	refreshBtn.BackgroundColor3=Color3.fromRGB(60,130,255); refreshBtn.AutoButtonColor=true; refreshBtn.Parent=row; Instance.new("UICorner",refreshBtn).CornerRadius=UDim.new(0,8)
-
 	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
 	dropdownBtn.TextColor3=Color3.fromRGB(235,235,240); dropdownBtn.BackgroundColor3=Color3.fromRGB(48,50,65); dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
 
+	-- Ligne 2 : Hold RMB + Lock Camera
 	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
 	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
 	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
 	holdToggle.MouseButton1Click:Connect(function() S.aimHold = not S.aimHold; setHold(S.aimHold) end)
 
-	makeSlider(Card,"Lissage",0,100,S.aimSmooth,130,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
-	makeSlider(Card,"Distance max",500,12000,S.aimMaxDist,192,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+	local lockRow=Instance.new("Frame"); lockRow.BackgroundTransparency=1; lockRow.Position=UDim2.fromOffset(14,128); lockRow.Size=UDim2.new(1,-28,0,28); lockRow.Parent=Card
+	local lockLbl=makeBadge("Lock caméra (Scriptable)"); lockLbl.Position=UDim2.fromOffset(0,6); lockLbl.Parent=lockRow
+	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
+	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
 
-	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-28,0,120); listHolder.Position=UDim2.fromOffset(14,228); listHolder.BackgroundColor3=Color3.fromRGB(40,42,56)
+	-- Sliders
+	makeSlider(Card,"Lissage",0,100,S.aimSmooth,162,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
+	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),224,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
+	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,286,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+
+	-- Liste joueurs
+	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-28,0,120); listHolder.Position=UDim2.fromOffset(14,348); listHolder.BackgroundColor3=Color3.fromRGB(40,42,56)
 	listHolder.BorderSizePixel=0; listHolder.ScrollBarThickness=6; listHolder.CanvasSize=UDim2.new(0,0,0,0); listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
 	local listLayout=Instance.new("UIListLayout",listHolder); listLayout.Padding=UDim.new(0,6)
 	local listPad=Instance.new("UIPadding",listHolder); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
@@ -693,6 +654,7 @@ do
 	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild() end end)
 	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild() end end)
 
+	-- Toggle aimbot
 	Toggle.MouseButton1Click:Connect(function()
 		S.aimOn = not S.aimOn; setT(S.aimOn)
 		if S.aimOn then aimbot_enable() else aimbot_disable() end
@@ -705,14 +667,7 @@ local dragging,offset
 local function beginDrag(io) dragging=true; local p=Main.AbsolutePosition; offset=Vector2.new(io.Position.X-p.X, io.Position.Y-p.Y) end
 local function updateDrag(io) if not dragging then return end; local x=io.Position.X-offset.X; local y=io.Position.Y-offset.Y; x,y=clampToScreen(x,y); Main.Position=UDim2.fromOffset(x,y) end
 local function endDrag() dragging=false end
-for _,area in ipairs({Header,Main}) do
-	area.InputBegan:Connect(function(io)
-		if io.UserInputType==Enum.UserInputType.MouseButton1 then
-			beginDrag(io)
-			io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end)
-		end
-	end)
-end
+for _,area in ipairs({Header,Main}) do area.InputBegan:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 then beginDrag(io); io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end) end end) end
 UIS.InputChanged:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseMovement then updateDrag(io) end end)
 
 local function toggleUI(state) if typeof(state)=="boolean" then S.uiVisible=state else S.uiVisible=not S.uiVisible end; UI.Enabled=S.uiVisible end
@@ -746,4 +701,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.18,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Premium Hub v5.3] ESP constant, Speed stable, + Aimbot Head (liste + refresh) ✅")
+print("[Premium Hub v5.4] Aimbot Hard-Lock prêt (Snap + Pred + lock caméra). NoClip & Infinite Jump OK ✅")
