@@ -1,11 +1,11 @@
 --[[
-  👑 Baba HUB v6.0 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head
+  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche)
   Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
 ]]
 
-if _G.__BABA_HUB_V60 then return end
-_G.__BABA_HUB_V60 = true
+if _G.__BABA_HUB_V62 then return end
+_G.__BABA_HUB_V62 = true
 
 --== Services ==--
 local Players  = game:GetService("Players")
@@ -26,8 +26,8 @@ local THEME = {
   stroke = Color3.fromRGB(255,255,255),
   text   = Color3.fromRGB(238,241,255),
   sub    = Color3.fromRGB(175,182,205),
-  acc1   = Color3.fromRGB(120,160,255), -- bleu
-  acc2   = Color3.fromRGB(220,120,255), -- violet
+  acc1   = Color3.fromRGB(120,160,255),
+  acc2   = Color3.fromRGB(220,120,255),
   ok     = Color3.fromRGB(68,205,128),
   danger = Color3.fromRGB(220,70,70),
 }
@@ -78,11 +78,12 @@ local S = {
 	aimOn=false, aimConn=nil,
 	aimTargetUserId=nil, aimTargetLabel=nil,
 	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2, -- RMB
-	aimSmooth=0,            -- 0 = snap instant (robuste)
+	aimSmooth=0,            -- 0 = snap instant
 	aimPredict=0.6,         -- 0..1 (prédiction simple)
 	aimMaxDist=15000,
 	aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true,
+	aimTeamCheck=false,     -- ignore tes teammates si ON
 	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
 
 	-- internals
@@ -90,10 +91,10 @@ local S = {
 }
 
 --== UI Root ==--
-local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv60"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv62"; safeParent(UI)
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(580, 860)
+Main.Size = UDim2.fromOffset(580, 880)
 Main.BackgroundColor3 = THEME.bg
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -104,7 +105,6 @@ end
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0,16)
 local stroke=Instance.new("UIStroke",Main) stroke.Thickness=1.2; stroke.Transparency=.14; stroke.Color=THEME.stroke
 
--- Soft shadow
 local Shadow=Instance.new("ImageLabel")
 Shadow.Image="rbxassetid://5028857084"
 Shadow.ImageTransparency=.52
@@ -121,14 +121,10 @@ local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.Back
 local Title=Instance.new("TextLabel")
 Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v6.0 — Aimbot Hard-Lock"; Title.Parent=Header
--- gradient flair
+Title.Text="👑 Baba HUB v6.2 — Aimbot Hard-Lock"; Title.Parent=Header
 local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
 local Grad = Instance.new("UIGradient", Flair)
-Grad.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, THEME.acc1),
-	ColorSequenceKeypoint.new(1, THEME.acc2),
-}
+Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
 Grad.Rotation = 25
 
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,18)
@@ -138,7 +134,6 @@ Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P'; Hin
 local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,14); HideBtn.Size=UDim2.fromOffset(30,30)
 HideBtn.Text="✕"; HideBtn.TextSize=18; HideBtn.Font=Enum.Font.GothamBold; HideBtn.TextColor3=THEME.text; HideBtn.AutoButtonColor=true
 HideBtn.BackgroundColor3=THEME.soft; HideBtn.Parent=Header; Instance.new("UICorner",HideBtn).CornerRadius=UDim.new(1,0); Instance.new("UIStroke",HideBtn).Transparency=.35
-
 local PanicBtn=Instance.new("TextButton"); PanicBtn.AnchorPoint=Vector2.new(1,0); PanicBtn.Position=UDim2.new(1,-50,0,14); PanicBtn.Size=UDim2.fromOffset(30,30)
 PanicBtn.Text="⚡"; PanicBtn.TextSize=16; PanicBtn.Font=Enum.Font.GothamBold; PanicBtn.TextColor3=THEME.text
 PanicBtn.BackgroundColor3=THEME.danger; PanicBtn.Parent=Header; Instance.new("UICorner",PanicBtn).CornerRadius=UDim.new(1,0)
@@ -152,15 +147,11 @@ local VList=Instance.new("UIListLayout",Content); VList.Padding=UDim.new(0,12); 
 local function refreshCanvas() Content.CanvasSize=UDim2.new(0,0,0,VList.AbsoluteContentSize.Y+8) end
 VList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshCanvas)
 
--- UI helpers
-local function popIn(card)
-	card.BackgroundTransparency = .12
-	tween(card,.18,{BackgroundTransparency=0}):Play()
-end
+-- Helpers
+local function popIn(card) card.BackgroundTransparency=.12; tween(card,.18,{BackgroundTransparency=0}):Play() end
 local function makeBadge(text)
-	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12
-	B.TextXAlignment=Enum.TextXAlignment.Left
-	B.TextColor3=THEME.sub; B.Text= text; B.Size=UDim2.fromOffset(240,16); return B
+	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12; B.TextXAlignment=Enum.TextXAlignment.Left
+	B.TextColor3=THEME.sub; B.Text=text; B.Size=UDim2.fromOffset(240,16); return B
 end
 local function makeCard(titleText, subtitleText, height, icon)
 	local Card=Instance.new("Frame"); Card.Size=UDim2.new(1,0,0,height); Card.BackgroundColor3=THEME.panel; Card.BorderSizePixel=0; Card.Active=true; Card.Parent=Content
@@ -179,10 +170,7 @@ local function makeToggle(parent, defaultOn, xOff)
 	Instance.new("UICorner",Btn).CornerRadius=UDim.new(1,0); local s=Instance.new("UIStroke",Btn); s.Thickness=1; s.Transparency=.2; s.Color=THEME.stroke
 	local Knob=Instance.new("Frame"); Knob.Size=UDim2.fromOffset(28,28); Knob.Position= defaultOn and UDim2.fromOffset(40,1) or UDim2.fromOffset(2,1); Knob.BackgroundColor3=THEME.text; Knob.Parent=Btn
 	Instance.new("UICorner",Knob).CornerRadius=UDim.new(1,0)
-	local function setOn(on)
-		tween(Btn,.12,{BackgroundColor3= on and THEME.ok or THEME.soft}):Play()
-		tween(Knob,.12,{Position= on and UDim2.fromOffset(40,1) or UDim2.fromOffset(2,1)}):Play()
-	end
+	local function setOn(on) tween(Btn,.12,{BackgroundColor3= on and THEME.ok or THEME.soft}):Play(); tween(Knob,.12,{Position= on and UDim2.fromOffset(40,1) or UDim2.fromOffset(2,1)}):Play() end
 	return Btn,setOn
 end
 local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, valueFmt)
@@ -235,7 +223,7 @@ local function speed_disable()
 end
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- Fly (identique versions précédentes, stable)
+-- Fly (idem version précédente, stable)
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -292,32 +280,22 @@ local function light_enable()
 	if not S.lightBackup then S.lightBackup={GlobalShadows=Lighting.GlobalShadows, FogEnd=Lighting.FogEnd, Brightness=Lighting.Brightness, Ambient=Lighting.Ambient} end
 	Lighting.GlobalShadows=LIGHT_PRESET.GlobalShadows; Lighting.FogEnd=LIGHT_PRESET.FogEnd; Lighting.Brightness=LIGHT_PRESET.Brightness; Lighting.Ambient=LIGHT_PRESET.Ambient
 end
-local function light_disable()
-	if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end
-end
+local function light_disable() if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end end
 
 --== ESP (no box) ==--
-local ROLE_COLORS = {
-	Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60),
-	Innocent=Color3.fromRGB(64,128,255),
-	Sheriff=Color3.fromRGB(255,220,0), Detective=Color3.fromRGB(255,220,0),
-}
+local ROLE_COLORS = { Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60), Innocent=Color3.fromRGB(64,128,255), Sheriff=Color3.fromRGB(255,220,0), Detective=Color3.fromRGB(255,220,0) }
 local DEFAULT_COLOR = Color3.fromRGB(200,200,200)
 local ESP_REG = {}
-
 local function getRole(p,char) local r=p:GetAttribute("Role"); if r==nil and char then r=char:GetAttribute("Role") end; return (typeof(r)=="string") and r or nil end
 local function colorFor(p,char) local role=getRole(p,char); if role and ROLE_COLORS[role] then return ROLE_COLORS[role] end; if p.Team and p.Team.TeamColor then return p.Team.TeamColor.Color end; return DEFAULT_COLOR end
 local function getHeadOrPart(char) return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChildWhichIsA("BasePart") end
 local function clearBillboards(char) for _,d in ipairs(char:GetDescendants()) do if d:IsA("BillboardGui") and d.Name=="ESP_BBG" then d:Destroy() end end end
-
 local function buildESPFor(p, char)
 	if not char or p==LP then return end
 	local reg = ESP_REG[p]; if not reg then reg={conns={}}; ESP_REG[p]=reg else disconnectAll(reg.conns) end; reg.char=char
 	local head = getHeadOrPart(char); reg.head = head
-	-- aura
 	local hl = char:FindFirstChild("ESP_Highlight"); if not hl then hl=Instance.new("Highlight"); hl.Name="ESP_Highlight"; hl.FillTransparency=1; hl.OutlineTransparency=0; hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent=char end
 	reg.hl = hl
-	-- labels
 	clearBillboards(char)
 	local bb = Instance.new("BillboardGui"); bb.Name="ESP_BBG"; bb.Size=UDim2.new(0,220,0,40); bb.StudsOffset=Vector3.new(0,3,0); bb.AlwaysOnTop=true; bb.MaxDistance=5000
 	bb.Parent = (head and head:IsA("BasePart")) and head or (char:FindFirstChild("HumanoidRootPart") or char)
@@ -385,10 +363,7 @@ local function esp_enable()
 	for _,pl in ipairs(Players:GetPlayers()) do if pl~=LP and pl.Character then buildESPFor(pl, pl.Character) end end
 	local function targetHz() local n=math.max(1,#S._playersCache); if n>20 then return 8 elseif n>10 then return 12 elseif n>5 then return 16 else return S.espHz end end
 	local acc, currHz = 0, targetHz()
-	S.espConn = RS.Heartbeat:Connect(function(dt)
-		acc += dt; if math.random()<0.1 then currHz = targetHz() end
-		local step = 1/math.max(1,currHz); if acc >= step then esp_update(); acc = 0 end
-	end)
+	S.espConn = RS.Heartbeat:Connect(function(dt) acc += dt; if math.random()<0.1 then currHz = targetHz() end; local step = 1/math.max(1,currHz); if acc >= step then esp_update(); acc = 0 end end)
 	Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end) if p.Character then buildESPFor(p,p.Character) end end)
 end
 local function esp_disable() disconnect(S.espConn); S.espConn=nil; for _,reg in pairs(ESP_REG) do if reg.bb then reg.bb.Enabled=false end; if reg.hl then reg.hl.Enabled=false end end end
@@ -425,26 +400,17 @@ if LP.Character then ij_bind(LP.Character) end
 LP.CharacterAdded:Connect(function(c) if S.ijOn then ij_bind(c) end end)
 
 --== Aimbot Hard-Lock (Head) ==--
+local function sameTeam(a,b) return (a and b and a.Team and b.Team and a.Team==b.Team) end
 local function getTargetHead()
 	if not S.aimTargetUserId then return nil end
 	local p = Players:GetPlayerByUserId(S.aimTargetUserId); if not p then return nil end
+	if S.aimTeamCheck and sameTeam(LP, p) then return nil end
 	local c = p.Character; if not c then return nil end
 	return c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
 end
-local function getVel(part)
-	if not part then return Vector3.zero end
-	if part:IsA("BasePart") then return part.AssemblyLinearVelocity end
-	return Vector3.zero
-end
-local function getHRPFrom(plr)
-	local c=plr and plr.Character; return c and c:FindFirstChild("HumanoidRootPart") or nil
-end
-local function aim_isActive()
-	if not S.aimOn then return false end
-	if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return false end
-	if not S.aimTargetUserId then return false end
-	return true
-end
+local function getVel(part) return (part and part:IsA("BasePart")) and part.AssemblyLinearVelocity or Vector3.zero end
+local function getHRPFrom(plr) local c=plr and plr.Character; return c and c:FindFirstChild("HumanoidRootPart") or nil end
+local function aim_isActive() if not S.aimOn then return false end; if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return false end; if not S.aimTargetUserId then return false end; return true end
 local function cam_lock()
 	if S.__camLocked or not S.aimLockCam then return end
 	local cam=workspace.CurrentCamera
@@ -547,7 +513,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
 end
 
--- NoClip (carte UI demandée)
+-- NoClip
 do
 	local Card=makeCard("🧱 NoClip","Traverse les objets. Mode maintien optionnel (touche X).",148)
 	local Toggle,setT=makeToggle(Card,false)
@@ -555,21 +521,15 @@ do
 	local lbl=makeBadge("Maintenir pour activer (X)"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
 	local holdT,setHold=makeToggle(row,S.noclipHold); holdT.Position=UDim2.new(1,-58,0,2); holdT.Size=UDim2.fromOffset(58,24)
 	holdT.MouseButton1Click:Connect(function() S.noclipHold = not S.noclipHold; setHold(S.noclipHold) end)
-	Toggle.MouseButton1Click:Connect(function()
-		S.noclipOn=not S.noclipOn; setT(S.noclipOn)
-		if S.noclipOn then noclip_enable() else noclip_disable() end
-	end)
+	Toggle.MouseButton1Click:Connect(function() S.noclipOn=not S.noclipOn; setT(S.noclipOn); if S.noclipOn then noclip_enable() else noclip_disable() end end)
 end
 
--- Infinite Jump (carte UI demandée)
+-- Infinite Jump
 do
 	local Card=makeCard("🦘 Saut Infini","Jump sans limite. Boost réglable.",150)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Boost Y",20,120,S.ijBoost,56,function(v) S.ijBoost=v end)
-	Toggle.MouseButton1Click:Connect(function()
-		S.ijOn=not S.ijOn; setT(S.ijOn)
-		if S.ijOn then if LP.Character then ij_bind(LP.Character) end else disconnect(S.ijConn); S.ijConn=nil end
-	end)
+	Toggle.MouseButton1Click:Connect(function() S.ijOn=not S.ijOn; setT(S.ijOn); if S.ijOn then if LP.Character then ij_bind(LP.Character) end else disconnect(S.ijConn); S.ijConn=nil end end)
 end
 
 -- TP + Follow
@@ -637,10 +597,14 @@ do
 	followToggle.MouseButton1Click:Connect(function() S.tpFollow = not S.tpFollow; setFollow(S.tpFollow) end)
 end
 
--- AIMBOT UI (liste FIX + positions corrigées)
-local function listOthersAim() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
+-- AIMBOT (+Recherche)
+local function listOthersAim()
+	local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end
+	table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end)
+	return arr
+end
 do
-	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste → sélection → la caméra colle la tête (snap). RMB optionnel, lock caméra.",380)
+	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste + recherche → sélection → la caméra colle la tête (snap).",430)
 	local Toggle,setT=makeToggle(Card,false)
 
 	-- Ligne 1 : Choix cible + Refresh
@@ -651,7 +615,7 @@ do
 	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
 
-	-- Ligne 2 : Hold RMB + Lock Camera
+	-- Ligne 2/3 : options
 	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
 	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
 	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
@@ -662,29 +626,63 @@ do
 	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
 	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
 
+	local teamRow=Instance.new("Frame"); teamRow.BackgroundTransparency=1; teamRow.Position=UDim2.fromOffset(14,160); teamRow.Size=UDim2.new(1,-28,0,28); teamRow.Parent=Card
+	local teamLbl=makeBadge("Ignorer mes coéquipiers"); teamLbl.Position=UDim2.fromOffset(0,6); teamLbl.Parent=teamRow
+	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
+	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
+
 	-- Sliders
-	makeSlider(Card,"Lissage",0,100,S.aimSmooth,162,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
-	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),224,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
-	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,286,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+	makeSlider(Card,"Lissage",0,100,S.aimSmooth,194,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
+	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),256,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
+	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,318,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
 
-	-- Liste joueurs (FIX: position + hauteur carte)
-	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-28,0,120); listHolder.Position=UDim2.fromOffset(14,228); listHolder.BackgroundColor3=Color3.fromRGB(40,42,56)
-	listHolder.BorderSizePixel=0; listHolder.ScrollBarThickness=6; listHolder.CanvasSize=UDim2.new(0,0,0,0); listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
-	local listLayout=Instance.new("UIListLayout",listHolder); listLayout.Padding=UDim.new(0,6)
-	local listPad=Instance.new("UIPadding",listHolder); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
-	local function resizeCanvas() local total=0; for _,ch in ipairs(listHolder:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listHolder.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
-	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun autre joueur."
-	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listHolder
+	-- === Popup Liste + Recherche ===
+	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-28,0,180); listHolder.Position=UDim2.fromOffset(14,360)
+	listHolder.BackgroundColor3=Color3.fromRGB(40,42,56); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
 
-	local function clearList() for _,ch in ipairs(listHolder:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
-	local function rebuild()
-		clearList()
+	-- Barre de recherche
+	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-56,0,30); searchBox.Position=UDim2.fromOffset(8,8)
+	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
+	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
+	local searchIcon=Instance.new("TextLabel"); searchIcon.BackgroundTransparency=1; searchIcon.Text="🔎"; searchIcon.Font=Enum.Font.Gotham; searchIcon.TextSize=16; searchIcon.TextColor3=THEME.sub
+	searchIcon.Size=UDim2.fromOffset(22,30); searchIcon.Position=UDim2.fromOffset(10,8); searchIcon.TextXAlignment=Enum.TextXAlignment.Center; searchIcon.Parent=listHolder
+	local clearBtn=Instance.new("TextButton"); clearBtn.Size=UDim2.fromOffset(30,30); clearBtn.Position=UDim2.new(1,-38,0,8); clearBtn.Text="✕"; clearBtn.Font=Enum.Font.GothamBold
+	clearBtn.TextSize=16; clearBtn.TextColor3=THEME.text; clearBtn.BackgroundColor3=THEME.danger; clearBtn.Parent=listHolder; Instance.new("UICorner",clearBtn).CornerRadius=UDim.new(1,0)
+
+	-- Liste scroll
+	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-48); listScroll.Position=UDim2.fromOffset(8,40)
+	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=listHolder
+	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
+	local listPad=Instance.new("UIPadding",listScroll); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
+	local function resizeCanvas() local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listScroll.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
+	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun résultat."
+	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
+
+	-- filtre helper
+	local function matches(p, q)
+		if not q or q=="" then return true end
+		q = string.lower(q)
+		local dn = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
+		local a = string.lower(dn)
+		local b = string.lower(p.Name)
+		return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
+	end
+
+	local function clearButtons()
+		for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end
+		emptyLabel.Visible=false
+	end
+
+	local function rebuild(filterQ)
+		clearButtons()
 		local others=listOthersAim()
-		if #others==0 then emptyLabel.Visible=true else
-			for _,p in ipairs(others) do
+		local count=0
+		for _,p in ipairs(others) do
+			if matches(p, filterQ) then
+				count += 1
 				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
 				b.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
-				b.Font=Enum.Font.Gotham; b.TextSize=14; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listHolder
+				b.Font=Enum.Font.Gotham; b.TextSize=14; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listScroll
 				Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
 				b.MouseButton1Click:Connect(function()
 					S.aimTargetUserId=p.UserId; S.aimTargetLabel=(p.DisplayName~="" and p.DisplayName) or p.Name
@@ -692,15 +690,22 @@ do
 				end)
 			end
 		end
+		if count==0 then emptyLabel.Visible=true end
 		resizeCanvas()
 		if S.aimTargetUserId and not Players:GetPlayerByUserId(S.aimTargetUserId) then
 			S.aimTargetUserId=nil; S.aimTargetLabel=nil; dropdownBtn.Text="Choisir une cible  ▾"
 		end
 	end
-	dropdownBtn.MouseButton1Click:Connect(function() listHolder.Visible=not listHolder.Visible; if listHolder.Visible then rebuild() end end)
-	refreshBtn.MouseButton1Click:Connect(function() rebuild() end)
-	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild() end end)
-	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild() end end)
+
+	dropdownBtn.MouseButton1Click:Connect(function()
+		listHolder.Visible=not listHolder.Visible
+		if listHolder.Visible then rebuild(searchBox.Text) end
+	end)
+	refreshBtn.MouseButton1Click:Connect(function() rebuild(searchBox.Text) end)
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
+	clearBtn.MouseButton1Click:Connect(function() searchBox.Text=""; rebuild("") end)
+	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
+	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 
 	-- Toggle aimbot
 	Toggle.MouseButton1Click:Connect(function()
@@ -715,28 +720,17 @@ local dragging,offset
 local function beginDrag(io) dragging=true; local p=Main.AbsolutePosition; offset=Vector2.new(io.Position.X-p.X, io.Position.Y-p.Y) end
 local function updateDrag(io) if not dragging then return end; local x=io.Position.X-offset.X; local y=io.Position.Y-offset.Y; x,y=clampToScreen(x,y); Main.Position=UDim2.fromOffset(x,y) end
 local function endDrag() dragging=false end
-for _,area in ipairs({Header,Main}) do
-	area.InputBegan:Connect(function(io)
-		if io.UserInputType==Enum.UserInputType.MouseButton1 then
-			beginDrag(io)
-			io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end)
-		end
-	end)
-end
+for _,area in ipairs({Header,Main}) do area.InputBegan:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 then beginDrag(io); io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end) end end) end
 UIS.InputChanged:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseMovement then updateDrag(io) end end)
 
 local function toggleUI(state) if typeof(state)=="boolean" then S.uiVisible=state else S.uiVisible=not S.uiVisible end; UI.Enabled=S.uiVisible end
 HideBtn.MouseButton1Click:Connect(function() toggleUI(false) end)
-
 UIS.InputBegan:Connect(function(io,gp)
 	if gp or UIS:GetFocusedTextBox() then return end
 	if io.UserInputType==Enum.UserInputType.Keyboard then
 		local shift = UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
-		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then
-			toggleUI()
-		end
+		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() end
 		if (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) and io.KeyCode==Enum.KeyCode.P then
-			-- PANIC
 			S.speedOn=false; speed_disable()
 			S.flyOn=false; fly_disable()
 			S.lightOn=false; light_disable()
@@ -751,9 +745,8 @@ UIS.InputBegan:Connect(function(io,gp)
 	end
 end)
 
--- micro-anim d'entrée
 Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset+20)
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.0] Aimbot hard-lock OK • NoClip/InfiniteJump OK • UI rafraîchie ✅")
+print("[Baba HUB v6.2] Aimbot + recherche OK • NoClip/InfiniteJump OK • UI animée ✅")
