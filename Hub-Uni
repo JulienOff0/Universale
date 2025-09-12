@@ -1,11 +1,16 @@
 --[[
-  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche)
-  Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
+  👑 Baba HUB v7.0 — Aimbot Multi•Head • ESP constant • Speed stable • NoClip • Infinite Jump • Fly • TP+Follow • Light • Hitbox
+  Nouveaux + importants :
+   - Aimbot multi-cibles (2v2/3v3/4v4) : sélection multiple, priorité à la cible la plus proche, recherche + “Ennemis/Tout/Aucun”.
+   - ESP sans box 3D (Highlight + labels) toujours visible, cadence adaptative (anti-lag).
+   - UI soignée (Baba HUB), micro-animations, Panic Alt+P. 
+   - Optimisations partout (batching, throttling, cleanup).
+
+  Raccourcis UI : "$" (⇧+4) • F2 • Insert • RightCtrl   |   Panic: Alt+P
 ]]
 
-if _G.__BABA_HUB_V62 then return end
-_G.__BABA_HUB_V62 = true
+if _G.__BABA_HUB_V70 then return end
+_G.__BABA_HUB_V70 = true
 
 --== Services ==--
 local Players  = game:GetService("Players")
@@ -74,27 +79,32 @@ local S = {
 	-- Infinite Jump
 	ijOn=false, ijBoost=55, ijConn=nil,
 
-	-- Aimbot (Hard-Lock)
+	-- Aimbot (Hard-Lock Multi)
 	aimOn=false, aimConn=nil,
-	aimTargetUserId=nil, aimTargetLabel=nil,
 	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2, -- RMB
 	aimSmooth=0,            -- 0 = snap instant
 	aimPredict=0.6,         -- 0..1 (prédiction simple)
 	aimMaxDist=15000,
 	aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true,
-	aimTeamCheck=false,     -- ignore tes teammates si ON
-	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
+	aimTeamCheck=false,     -- ignore teammates
+	-- Single target (mode simple)
+	aimTargetUserId=nil, aimTargetLabel=nil,
+	-- Multi-cibles
+	aimMulti=true,          -- par défaut ON (2v2/3v3/4v4)
+	aimTargets={},          -- set[userId]=true
+	aimPreferClosest=true,  -- choisit la cible la plus proche
 
 	-- internals
 	_playersCache = {},
+	__camLocked=false, __prevCamType=nil, __prevCamSubject=nil,
 }
 
 --== UI Root ==--
-local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv62"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv70"; safeParent(UI)
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(580, 880)
+Main.Size = UDim2.fromOffset(600, 980)
 Main.BackgroundColor3 = THEME.bg
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -105,6 +115,7 @@ end
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0,16)
 local stroke=Instance.new("UIStroke",Main) stroke.Thickness=1.2; stroke.Transparency=.14; stroke.Color=THEME.stroke
 
+-- Ombre douce
 local Shadow=Instance.new("ImageLabel")
 Shadow.Image="rbxassetid://5028857084"
 Shadow.ImageTransparency=.52
@@ -121,14 +132,14 @@ local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.Back
 local Title=Instance.new("TextLabel")
 Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v6.2 — Aimbot Hard-Lock"; Title.Parent=Header
+Title.Text="👑 Baba HUB v7.0 — Aimbot Multi"; Title.Parent=Header
 local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
 local Grad = Instance.new("UIGradient", Flair)
 Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
 Grad.Rotation = 25
 
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,18)
-Hint.Size=UDim2.fromOffset(330,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
+Hint.Size=UDim2.fromOffset(350,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
 Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P'; Hint.Parent=Header
 
 local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,14); HideBtn.Size=UDim2.fromOffset(30,30)
@@ -147,11 +158,11 @@ local VList=Instance.new("UIListLayout",Content); VList.Padding=UDim.new(0,12); 
 local function refreshCanvas() Content.CanvasSize=UDim2.new(0,0,0,VList.AbsoluteContentSize.Y+8) end
 VList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshCanvas)
 
--- Helpers
+-- Helpers UI
 local function popIn(card) card.BackgroundTransparency=.12; tween(card,.18,{BackgroundTransparency=0}):Play() end
 local function makeBadge(text)
 	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12; B.TextXAlignment=Enum.TextXAlignment.Left
-	B.TextColor3=THEME.sub; B.Text=text; B.Size=UDim2.fromOffset(240,16); return B
+	B.TextColor3=THEME.sub; B.Text=text; B.Size=UDim2.fromOffset(260,16); return B
 end
 local function makeCard(titleText, subtitleText, height, icon)
 	local Card=Instance.new("Frame"); Card.Size=UDim2.new(1,0,0,height); Card.BackgroundColor3=THEME.panel; Card.BorderSizePixel=0; Card.Active=true; Card.Parent=Content
@@ -160,9 +171,8 @@ local function makeCard(titleText, subtitleText, height, icon)
 	local T=Instance.new("TextLabel"); T.BackgroundTransparency=1; T.Font=Enum.Font.GothamSemibold; T.TextSize=16; T.TextXAlignment=Enum.TextXAlignment.Left
 	T.TextColor3=THEME.text; T.Text=(icon and (icon.."  ") or "")..titleText; T.Position=UDim2.fromOffset(14,8); T.Size=UDim2.fromOffset(420,20); T.Parent=Card
 	local ST=Instance.new("TextLabel"); ST.BackgroundTransparency=1; ST.Font=Enum.Font.Gotham; ST.TextSize=13; ST.TextXAlignment=Enum.TextXAlignment.Left
-	ST.TextColor3=THEME.sub; ST.Text=subtitleText or ""; ST.Position=UDim2.fromOffset(14,30); ST.Size=UDim2.fromOffset(520,18); ST.Parent=Card
-	popIn(Card)
-	return Card
+	ST.TextColor3=THEME.sub; ST.Text=subtitleText or ""; ST.Position=UDim2.fromOffset(14,30); ST.Size=UDim2.fromOffset(540,18); ST.Parent=Card
+	popIn(Card); return Card
 end
 local function makeToggle(parent, defaultOn, xOff)
 	local Btn=Instance.new("TextButton"); Btn.AutoButtonColor=true; Btn.AnchorPoint=Vector2.new(1,0); Btn.Position=UDim2.new(1,-(xOff or 10),0,8)
@@ -177,7 +187,7 @@ local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, 
 	local Wrap=Instance.new("Frame"); Wrap.BackgroundTransparency=1; Wrap.Position=UDim2.fromOffset(14,yOff or 56); Wrap.Size=UDim2.new(1,-28,0,62); Wrap.Parent=parent
 	local function fmt(v) return valueFmt and valueFmt(v) or tostring(v) end
 	local T=Instance.new("TextLabel"); T.BackgroundTransparency=1; T.Font=Enum.Font.Gotham; T.TextSize=14; T.TextXAlignment=Enum.TextXAlignment.Left; T.TextColor3=THEME.sub
-	T.Text=string.format("%s : %s",title,fmt(defaultV)); T.Position=UDim2.fromOffset(0,0); T.Size=UDim2.fromOffset(360,18); T.Parent=Wrap
+	T.Text=string.format("%s : %s",title,fmt(defaultV)); T.Position=UDim2.fromOffset(0,0); T.Size=UDim2.fromOffset(380,18); T.Parent=Wrap
 	local Bar=Instance.new("Frame"); Bar.BackgroundColor3=THEME.soft; Bar.BorderSizePixel=0; Bar.Position=UDim2.fromOffset(0,26); Bar.Size=UDim2.new(1,0,0,8); Bar.Parent=Wrap
 	Instance.new("UICorner",Bar).CornerRadius=UDim.new(0,6)
 	local Fill=Instance.new("Frame"); Fill.BackgroundColor3=THEME.acc1; Fill.BorderSizePixel=0; Fill.Size=UDim2.fromOffset(0,8); Fill.Parent=Bar
@@ -194,14 +204,36 @@ local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, 
 		if onChanged then onChanged(val) end
 	end
 	RS.Heartbeat:Wait(); local rel=(defaultV-minV)/(maxV-minV); setFromX(Bar.AbsoluteSize.X*rel)
-	Bar.InputBegan:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.Touch then dragging=true; setFromX(io.Position.X-Bar.AbsolutePosition.X) end end)
-	UIS.InputChanged:Connect(function(io) if dragging and (io.UserInputType==Enum.UserInputType.MouseMovement or io.UserInputType==Enum.UserInputType.Touch) then setFromX(io.Position.X-Bar.AbsolutePosition.X) end end)
-	UIS.InputEnded:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType.MouseButton1 then dragging=false end end)
+	Bar.InputBegan:Connect(function(io)
+		if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.Touch then
+			dragging=true; setFromX(io.Position.X-Bar.AbsolutePosition.X)
+		end
+	end)
+	UIS.InputChanged:Connect(function(io)
+		if dragging and (io.UserInputType==Enum.UserInputType.MouseMovement or io.UserInputType==Enum.UserInputType.Touch) then
+			setFromX(io.Position.X-Bar.AbsolutePosition.X)
+		end
+	end)
+	UIS.InputEnded:Connect(function(io)
+		if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.Touch then dragging=false end
+	end)
 	return { set=function(v) v=math.clamp(v,minV,maxV); local r=(v-minV)/(maxV-minV); setFromX(Bar.AbsoluteSize.X*r) end }
 end
 
+--== Common helpers ==--
+local function listOthersSorted()
+	local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end
+	table.sort(arr,function(a,b)
+		local ad=(a.DisplayName and a.DisplayName~="" and a.DisplayName) or a.Name
+		local bd=(b.DisplayName and b.DisplayName~="" and b.DisplayName) or b.Name
+		return string.lower(ad) < string.lower(bd)
+	end)
+	return arr
+end
+
 --== Features ==--
--- Speed
+
+-- SPEED (stable, no shift)
 local function speed_enable()
 	S.humanoid = getHum()
 	S.normalSpeed = S.humanoid.WalkSpeed
@@ -223,7 +255,7 @@ local function speed_disable()
 end
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- Fly (idem version précédente, stable)
+-- FLY (clean exit, configurable)
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -274,7 +306,7 @@ local function fly_enable()
 	table.insert(S.flyConns, hum.Died:Connect(fly_disable))
 end
 
--- Light
+-- LIGHT
 local LIGHT_PRESET={GlobalShadows=false, FogEnd=100000, Brightness=2, Ambient=Color3.fromRGB(150,150,150)}
 local function light_enable()
 	if not S.lightBackup then S.lightBackup={GlobalShadows=Lighting.GlobalShadows, FogEnd=Lighting.FogEnd, Brightness=Lighting.Brightness, Ambient=Lighting.Ambient} end
@@ -282,7 +314,7 @@ local function light_enable()
 end
 local function light_disable() if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end end
 
---== ESP (no box) ==--
+-- ESP (no box) — performant
 local ROLE_COLORS = { Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60), Innocent=Color3.fromRGB(64,128,255), Sheriff=Color3.fromRGB(255,220,0), Detective=Color3.fromRGB(255,220,0) }
 local DEFAULT_COLOR = Color3.fromRGB(200,200,200)
 local ESP_REG = {}
@@ -350,8 +382,7 @@ local function esp_update()
 end
 
 local function rebuildPlayersCache()
-	local list={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(list,p) end end
-	table.sort(list,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end)
+	local list=listOthersSorted()
 	S._playersCache = list
 end
 rebuildPlayersCache()
@@ -368,7 +399,7 @@ local function esp_enable()
 end
 local function esp_disable() disconnect(S.espConn); S.espConn=nil; for _,reg in pairs(ESP_REG) do if reg.bb then reg.bb.Enabled=false end; if reg.hl then reg.hl.Enabled=false end end end
 
---== Hitbox ==--
+-- HITBOX
 local function rememberHRP(hrp) if not hrp or S.hitboxOrig[hrp] then return end; S.hitboxOrig[hrp] = { Size=hrp.Size, Transparency=hrp.Transparency, Material=hrp.Material, CanCollide=hrp.CanCollide, BrickColor=hrp.BrickColor } end
 local function applyHitboxTo(hrp) if not hrp then return end; rememberHRP(hrp); hrp.Size=Vector3.new(S.hitboxSize,S.hitboxSize,S.hitboxSize); hrp.Transparency=.7; hrp.BrickColor=BrickColor.new("Really red"); hrp.Material=Enum.Material.Neon; hrp.CanCollide=false end
 local function restoreAllHitbox() for hrp,orig in pairs(S.hitboxOrig) do if hrp and hrp.Parent and orig then pcall(function() hrp.Size=orig.Size; hrp.Transparency=orig.Transparency; hrp.Material=orig.Material; hrp.CanCollide=orig.CanCollide; hrp.BrickColor=orig.BrickColor end) end end; S.hitboxOrig={} end
@@ -376,7 +407,7 @@ local function hitbox_tick() for _,pl in ipairs(S._playersCache) do local c=pl.C
 local function hitbox_enable() if S.hitboxConn then return end; hitbox_tick(); S.hitboxConn = RS.Heartbeat:Connect(function(dt) local acc=(S.__hbacc or 0)+dt; if acc>=0.25 then hitbox_tick(); acc=0 end; S.__hbacc=acc end) end
 local function hitbox_disable() disconnect(S.hitboxConn); S.hitboxConn=nil; restoreAllHitbox() end
 
---== NoClip ==--
+-- NOCLIP
 local function noclip_cachePart(inst) if inst:IsA("BasePart") and S.noclipOriginal[inst]==nil then S.noclipOriginal[inst]=inst.CanCollide end end
 local function noclip_cacheChar(char) for _,d in ipairs(char:GetDescendants()) do noclip_cachePart(d) end; disconnect(S.noclipDesc); S.noclipDesc=char.DescendantAdded:Connect(noclip_cachePart) end
 local function noclip_apply(char) for part,_ in pairs(S.noclipOriginal) do if part.Parent and part:IsDescendantOf(char) then part.CanCollide=false end end end
@@ -384,7 +415,7 @@ local function noclip_enable() local char=getChar(); S.noclipOriginal={}; noclip
 local function noclip_disable() disconnect(S.noclipStep); S.noclipStep=nil; disconnect(S.noclipDesc); S.noclipDesc=nil; for part,can in pairs(S.noclipOriginal) do if part and part.Parent then part.CanCollide=can end end; S.noclipOriginal={} end
 LP.CharacterAdded:Connect(function(c) if S.noclipOn then noclip_enable() end end)
 
---== Infinite Jump ==--
+-- INFINITE JUMP
 local function ij_bind(char)
 	local hum=char:WaitForChild("Humanoid"); local root=char:WaitForChild("HumanoidRootPart")
 	hum.UseJumpPower=true; disconnect(S.ijConn)
@@ -399,23 +430,54 @@ end
 if LP.Character then ij_bind(LP.Character) end
 LP.CharacterAdded:Connect(function(c) if S.ijOn then ij_bind(c) end end)
 
---== Aimbot Hard-Lock (Head) ==--
+-- AIMBOT (multi-cibles)
 local function sameTeam(a,b) return (a and b and a.Team and b.Team and a.Team==b.Team) end
-local function getTargetHead()
-	if not S.aimTargetUserId then return nil end
-	local p = Players:GetPlayerByUserId(S.aimTargetUserId); if not p then return nil end
-	if S.aimTeamCheck and sameTeam(LP, p) then return nil end
-	local c = p.Character; if not c then return nil end
-	return c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart")
+local function playerHead(p)
+	if not p or not p.Character then return nil end
+	return p.Character:FindFirstChild("Head") or p.Character:FindFirstChild("HumanoidRootPart")
 end
-local function getVel(part) return (part and part:IsA("BasePart")) and part.AssemblyLinearVelocity or Vector3.zero end
-local function getHRPFrom(plr) local c=plr and plr.Character; return c and c:FindFirstChild("HumanoidRootPart") or nil end
-local function aim_isActive() if not S.aimOn then return false end; if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return false end; if not S.aimTargetUserId then return false end; return true end
+local function isValidTarget(p)
+	if not p or p==LP then return false end
+	if S.aimTeamCheck and sameTeam(LP, p) then return false end
+	local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+	local head = playerHead(p)
+	return hum and hum.Health>0 and head ~= nil
+end
+local function nearestSelectedTarget()
+	local myC = LP.Character
+	local myHRP = myC and myC:FindFirstChild("HumanoidRootPart")
+	if not myHRP then return nil end
+	local best, bestDist = nil, math.huge
+
+	if S.aimMulti then
+		for uid,_ in pairs(S.aimTargets) do
+			local p = Players:GetPlayerByUserId(uid)
+			if isValidTarget(p) then
+				local h = playerHead(p)
+				local d = (h.Position - myHRP.Position).Magnitude
+				if d < bestDist and d <= S.aimMaxDist then best, bestDist = p, d end
+			else
+				S.aimTargets[uid] = nil
+			end
+		end
+	else
+		if S.aimTargetUserId then
+			local p = Players:GetPlayerByUserId(S.aimTargetUserId)
+			if isValidTarget(p) then best = p end
+		end
+	end
+	return best
+end
+local function currentAimHead()
+	local tgtPlayer = nearestSelectedTarget()
+	if not tgtPlayer then return nil end
+	return playerHead(tgtPlayer)
+end
+
 local function cam_lock()
 	if S.__camLocked or not S.aimLockCam then return end
 	local cam=workspace.CurrentCamera
-	S.__prevCamType = cam.CameraType
-	S.__prevCamSubject = cam.CameraSubject
+	S.__prevCamType, S.__prevCamSubject = cam.CameraType, cam.CameraSubject
 	cam.CameraType = Enum.CameraType.Scriptable
 	S.__camLocked = true
 end
@@ -424,10 +486,15 @@ local function cam_unlock()
 	local cam=workspace.CurrentCamera
 	if S.__prevCamType then cam.CameraType = S.__prevCamType end
 	if S.__prevCamSubject then cam.CameraSubject = S.__prevCamSubject end
-	S.__prevCamType, S.__prevCamSubject = nil, nil
-	S.__camLocked = false
+	S.__prevCamType, S.__prevCamSubject, S.__camLocked = nil, nil, false
 end
-local function aimbot_disable() disconnect(S.aimConn); S.aimConn=nil; cam_unlock() end
+local function aim_isActive()
+	if not S.aimOn then return false end
+	if S.aimHold and not UIS:IsMouseButtonPressed(S.aimHoldMouseButton) then return false end
+	if S.aimMulti then return next(S.aimTargets) ~= nil else return S.aimTargetUserId ~= nil end
+end
+
+local function aimbot_disable() if S.aimConn then S.aimConn:Disconnect() end; S.aimConn=nil; cam_unlock() end
 local function aimbot_enable()
 	if S.aimConn then return end
 	S.aimConn = RS.RenderStepped:Connect(function(dt)
@@ -435,35 +502,34 @@ local function aimbot_enable()
 		if not aim_isActive() then cam_unlock(); return end
 		cam_lock()
 
-		local head = getTargetHead(); if not head or not head.Parent then return end
+		local head = currentAimHead()
+		if not head or not head.Parent then return end
+
 		local camPos = cam.CFrame.Position
 		local targetPos = head.Position + S.aimHeadOffset
 		if (camPos - targetPos).Magnitude > S.aimMaxDist then return end
 
-		-- prédiction simple
-		if S.aimPredict and S.aimPredict > 0 then
-			local vel = getVel(head)
-			if vel.Magnitude < 0.1 then
-				local pObj = Players:GetPlayerByUserId(S.aimTargetUserId)
-				local hrp = getHRPFrom(pObj)
-				if hrp then vel = hrp.AssemblyLinearVelocity end
-			end
-			targetPos = targetPos + vel * (math.clamp(S.aimPredict,0,1) * dt * 60/60)
+		-- prédiction simple (vel head/HRP)
+		local vel = (head:IsA("BasePart") and head.AssemblyLinearVelocity) or Vector3.zero
+		if S.aimPredict and S.aimPredict>0 and vel.Magnitude<0.1 then
+			local hrp = head.Parent:FindFirstChild("HumanoidRootPart")
+			if hrp then vel = hrp.AssemblyLinearVelocity end
 		end
+		targetPos = targetPos + vel * math.clamp(S.aimPredict,0,1) * dt
 
 		local want = CFrame.lookAt(camPos, targetPos)
-		local s = math.clamp(S.aimSmooth/100, 0, 1)
-		if s <= 0 then cam.CFrame = want
+		local s    = math.clamp(S.aimSmooth/100, 0, 1)
+		if s<=0 then cam.CFrame = want
 		else
-			local alpha = 1 - math.pow(1 - s, dt*60)
-			cam.CFrame = cam.CFrame:Lerp(want, math.clamp(alpha,0,1))
+			local alpha = 1 - math.pow(1 - s, dt*60) -- easing doux
+			cam.CFrame  = cam.CFrame:Lerp(want, alpha)
 		end
 	end)
 end
 
 --== UI Cards ==--
 
--- Speed
+-- SPEED
 do
 	local Card=makeCard("⚡ Vitesse","Vitesse constante et stable (pas de Shift).",132)
 	local Toggle,setT=makeToggle(Card,false)
@@ -471,7 +537,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.speedOn=not S.speedOn; setT(S.speedOn); if S.speedOn then speed_enable() else speed_disable() end end)
 end
 
--- Fly
+-- FLY
 do
 	local Card=makeCard("🕊️ Vol","WASD/ZQSD + Espace/CTRL (vertical). Sortie propre.",160)
 	local Toggle,setT=makeToggle(Card,false)
@@ -480,7 +546,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.flyOn=not S.flyOn; setT(S.flyOn); if S.flyOn then fly_enable() else fly_disable() end end)
 end
 
--- Light
+-- LIGHT
 do local Card=makeCard("💡 Lumière","Désactive ombres, enlève brouillard, +luminosité.",100); local Toggle,setT=makeToggle(Card,false)
 	Toggle.MouseButton1Click:Connect(function() S.lightOn=not S.lightOn; setT(S.lightOn); if S.lightOn then light_enable() else light_disable() end end)
 end
@@ -505,7 +571,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.espOn=not S.espOn; setT(S.espOn); if S.espOn then esp_enable() else esp_disable() end end)
 end
 
--- Hitbox
+-- HITBOX
 do
 	local Card=makeCard("🎯 Hitbox (HRP)","Agrandit le HRP des autres (client). Rafraîchi 0.25s.",148)
 	local Toggle,setT=makeToggle(Card,false)
@@ -513,7 +579,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
 end
 
--- NoClip
+-- NOCLIP
 do
 	local Card=makeCard("🧱 NoClip","Traverse les objets. Mode maintien optionnel (touche X).",148)
 	local Toggle,setT=makeToggle(Card,false)
@@ -524,7 +590,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.noclipOn=not S.noclipOn; setT(S.noclipOn); if S.noclipOn then noclip_enable() else noclip_disable() end end)
 end
 
--- Infinite Jump
+-- INFINITE JUMP
 do
 	local Card=makeCard("🦘 Saut Infini","Jump sans limite. Boost réglable.",150)
 	local Toggle,setT=makeToggle(Card,false)
@@ -532,8 +598,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.ijOn=not S.ijOn; setT(S.ijOn); if S.ijOn then if LP.Character then ij_bind(LP.Character) end else disconnect(S.ijConn); S.ijConn=nil end end)
 end
 
--- TP + Follow
-local function listOthers() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
+-- TP + FOLLOW
 do
 	local Card=makeCard("🧭 Téléportation","Choisis un joueur puis TP. Mode Follow (suivi continu).",230)
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,58); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
@@ -543,6 +608,7 @@ do
 	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir un joueur  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
 	local followToggle, setFollow = makeToggle(row, false); followToggle.Position=UDim2.new(1,-58,0,2); followToggle.Size=UDim2.fromOffset(58,24)
+
 	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-28,0,120); listHolder.Position=UDim2.fromOffset(14,100); listHolder.BackgroundColor3=Color3.fromRGB(40,42,56)
 	listHolder.BorderSizePixel=0; listHolder.ScrollBarThickness=6; listHolder.CanvasSize=UDim2.new(0,0,0,0); listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
 	local listLayout=Instance.new("UIListLayout",listHolder); listLayout.Padding=UDim.new(0,6)
@@ -555,10 +621,11 @@ do
 	Instance.new("UICorner",tpBtn).CornerRadius=UDim.new(0,10)
 	local function setTPEnabled(on) tpBtn.Active=on; tpBtn.AutoButtonColor=on; tpBtn.BackgroundColor3= on and THEME.acc1 or THEME.soft end
 	setTPEnabled(false)
+
 	local function clearList() for _,ch in ipairs(listHolder:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
 	local function rebuild()
 		clearList()
-		local others=listOthers()
+		local others=listOthersSorted()
 		if #others==0 then emptyLabel.Visible=true else
 			for _,p in ipairs(others) do
 				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
@@ -597,115 +664,173 @@ do
 	followToggle.MouseButton1Click:Connect(function() S.tpFollow = not S.tpFollow; setFollow(S.tpFollow) end)
 end
 
--- AIMBOT (+Recherche)
-local function listOthersAim()
-	local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end
-	table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end)
-	return arr
+-- AIMBOT — MULTI + RECHERCHE + ENNEMIS/ALL/NONE
+local function countSelected() local n=0; for _ in pairs(S.aimTargets) do n+=1 end; return n end
+local function matchesPlayer(p, q)
+	if not q or q=="" then return true end
+	q = string.lower(q)
+	local dn = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
+	local a = string.lower(dn)
+	local b = string.lower(p.Name)
+	return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
 end
+local function selectEnemies()
+	S.aimTargets = {}
+	for _,p in ipairs(Players:GetPlayers()) do
+		if p~=LP and not sameTeam(LP,p) and isValidTarget(p) then S.aimTargets[p.UserId]=true end
+	end
+end
+local function clearSelection() S.aimTargets = {}; S.aimTargetUserId=nil; S.aimTargetLabel=nil end
+
 do
-	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste + recherche → sélection → la caméra colle la tête (snap).",430)
+	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Multi-sélection (2v2/3v3/4v4) + recherche. Vise toujours la tête la plus proche.",560)
 	local Toggle,setT=makeToggle(Card,false)
 
-	-- Ligne 1 : Choix cible + Refresh
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
-	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
-	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=THEME.text
-	refreshBtn.BackgroundColor3=THEME.acc1; refreshBtn.AutoButtonColor=true; refreshBtn.Parent=row; Instance.new("UICorner",refreshBtn).CornerRadius=UDim.new(0,8)
-	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
-	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
+	-- Ligne 1 : Options principales
+	local opt1=Instance.new("Frame"); opt1.BackgroundTransparency=1; opt1.Position=UDim2.fromOffset(14,56); opt1.Size=UDim2.new(1,-28,0,28); opt1.Parent=Card
+	local lblHold=makeBadge("Maintenir RMB pour viser"); lblHold.Position=UDim2.fromOffset(0,6); lblHold.Parent=opt1
+	local holdT,setHold=makeToggle(opt1,S.aimHold); holdT.Position=UDim2.new(1,-58,0,2); holdT.Size=UDim2.fromOffset(58,24)
+	holdT.MouseButton1Click:Connect(function() S.aimHold = not S.aimHold; setHold(S.aimHold) end)
 
-	-- Ligne 2/3 : options
-	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
-	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
-	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
-	holdToggle.MouseButton1Click:Connect(function() S.aimHold = not S.aimHold; setHold(S.aimHold) end)
-
-	local lockRow=Instance.new("Frame"); lockRow.BackgroundTransparency=1; lockRow.Position=UDim2.fromOffset(14,128); lockRow.Size=UDim2.new(1,-28,0,28); lockRow.Parent=Card
-	local lockLbl=makeBadge("Lock caméra (Scriptable)"); lockLbl.Position=UDim2.fromOffset(0,6); lockLbl.Parent=lockRow
-	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
+	local opt2=Instance.new("Frame"); opt2.BackgroundTransparency=1; opt2.Position=UDim2.fromOffset(14,88); opt2.Size=UDim2.new(1,-28,0,28); opt2.Parent=Card
+	local lblLock=makeBadge("Lock caméra (Scriptable)"); lblLock.Position=UDim2.fromOffset(0,6); lblLock.Parent=opt2
+	local lockT,setLock=makeToggle(opt2,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
 	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
 
-	local teamRow=Instance.new("Frame"); teamRow.BackgroundTransparency=1; teamRow.Position=UDim2.fromOffset(14,160); teamRow.Size=UDim2.new(1,-28,0,28); teamRow.Parent=Card
-	local teamLbl=makeBadge("Ignorer mes coéquipiers"); teamLbl.Position=UDim2.fromOffset(0,6); teamLbl.Parent=teamRow
-	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
+	local opt3=Instance.new("Frame"); opt3.BackgroundTransparency=1; opt3.Position=UDim2.fromOffset(14,120); opt3.Size=UDim2.new(1,-28,0,28); opt3.Parent=Card
+	local lblTeam=makeBadge("Ignorer mes coéquipiers"); lblTeam.Position=UDim2.fromOffset(0,6); lblTeam.Parent=opt3
+	local teamT,setTeam=makeToggle(opt3,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
 	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
 
-	-- Sliders
-	makeSlider(Card,"Lissage",0,100,S.aimSmooth,194,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
-	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),256,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
-	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,318,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+	local opt4=Instance.new("Frame"); opt4.BackgroundTransparency=1; opt4.Position=UDim2.fromOffset(14,152); opt4.Size=UDim2.new(1,-28,0,28); opt4.Parent=Card
+	local lblMulti=makeBadge("Mode multi-cibles (2v2/3v3/4v4)"); lblMulti.Position=UDim2.fromOffset(0,6); lblMulti.Parent=opt4
+	local multiT,setMulti=makeToggle(opt4,S.aimMulti); multiT.Position=UDim2.new(1,-58,0,2); multiT.Size=UDim2.fromOffset(58,24)
+	multiT.MouseButton1Click:Connect(function() S.aimMulti = not S.aimMulti; setMulti(S.aimMulti) end)
 
-	-- === Popup Liste + Recherche ===
-	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-28,0,180); listHolder.Position=UDim2.fromOffset(14,360)
-	listHolder.BackgroundColor3=Color3.fromRGB(40,42,56); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
+	-- Sliders
+	makeSlider(Card,"Lissage",0,100,S.aimSmooth,186,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
+	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),248,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
+	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,310,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+
+	-- Sélecteur (Recherche + boutons + liste)
+	local box=Instance.new("Frame"); box.Size=UDim2.new(1,-28,0,220); box.Position=UDim2.fromOffset(14,372)
+	box.BackgroundColor3=Color3.fromRGB(40,42,56); box.BorderSizePixel=0; box.Parent=Card; Instance.new("UICorner",box).CornerRadius=UDim.new(0,10)
 
 	-- Barre de recherche
-	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-56,0,30); searchBox.Position=UDim2.fromOffset(8,8)
+	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-16,0,30); searchBox.Position=UDim2.fromOffset(8,8)
 	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
-	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
-	local searchIcon=Instance.new("TextLabel"); searchIcon.BackgroundTransparency=1; searchIcon.Text="🔎"; searchIcon.Font=Enum.Font.Gotham; searchIcon.TextSize=16; searchIcon.TextColor3=THEME.sub
-	searchIcon.Size=UDim2.fromOffset(22,30); searchIcon.Position=UDim2.fromOffset(10,8); searchIcon.TextXAlignment=Enum.TextXAlignment.Center; searchIcon.Parent=listHolder
-	local clearBtn=Instance.new("TextButton"); clearBtn.Size=UDim2.fromOffset(30,30); clearBtn.Position=UDim2.new(1,-38,0,8); clearBtn.Text="✕"; clearBtn.Font=Enum.Font.GothamBold
-	clearBtn.TextSize=16; clearBtn.TextColor3=THEME.text; clearBtn.BackgroundColor3=THEME.danger; clearBtn.Parent=listHolder; Instance.new("UICorner",clearBtn).CornerRadius=UDim.new(1,0)
+	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=box; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
 
-	-- Liste scroll
-	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-48); listScroll.Position=UDim2.fromOffset(8,40)
-	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=listHolder
+	-- Boutons rapides
+	local btnBar=Instance.new("Frame"); btnBar.BackgroundTransparency=1; btnBar.Position=UDim2.fromOffset(8,44); btnBar.Size=UDim2.new(1,-16,0,30); btnBar.Parent=box
+	local bl=Instance.new("UIListLayout",btnBar); bl.FillDirection=Enum.FillDirection.Horizontal; bl.Padding=UDim.new(0,8)
+	local function miniBtn(txt, col)
+		local b=Instance.new("TextButton"); b.Text=txt; b.Font=Enum.Font.GothamSemibold; b.TextSize=13; b.TextColor3=THEME.text
+		b.BackgroundColor3=col or THEME.acc1; b.AutoButtonColor=true; b.Size=UDim2.new(0,120,1,0); b.Parent=btnBar; Instance.new("UICorner",b).CornerRadius=UDim.new(0,8); return b
+	end
+	local btnEnemies = miniBtn("Ennemis", THEME.acc1)
+	local btnAll     = miniBtn("Tout", Color3.fromRGB(90,180,120))
+	local btnNone    = miniBtn("Aucun", THEME.danger)
+
+	-- Liste des joueurs
+	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-84); listScroll.Position=UDim2.fromOffset(8,78)
+	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=box
 	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
 	local listPad=Instance.new("UIPadding",listScroll); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
-	local function resizeCanvas() local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listScroll.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
 	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun résultat."
 	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
-
-	-- filtre helper
-	local function matches(p, q)
-		if not q or q=="" then return true end
-		q = string.lower(q)
-		local dn = (p.DisplayName and p.DisplayName ~= "") and p.DisplayName or p.Name
-		local a = string.lower(dn)
-		local b = string.lower(p.Name)
-		return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
+	local selCount=Instance.new("TextLabel"); selCount.BackgroundTransparency=1; selCount.Position=UDim2.new(1,-160,0,8); selCount.Size=UDim2.fromOffset(150,20)
+	selCount.TextXAlignment=Enum.TextXAlignment.Right; selCount.Font=Enum.Font.GothamSemibold; selCount.TextSize=12; selCount.TextColor3=THEME.sub; selCount.Parent=box
+	local function updateCountLabel()
+		if S.aimMulti then
+			selCount.Text = "Sélection : "..tostring(countSelected())
+		else
+			selCount.Text = S.aimTargetUserId and ("Cible : @"..(Players:GetPlayerByUserId(S.aimTargetUserId).Name)) or "Cible : (aucune)"
+		end
 	end
-
+	local function resizeCanvas()
+		local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("Frame") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end
+		listScroll.CanvasSize=UDim2.new(0,0,0, math.max(total,0))
+	end
 	local function clearButtons()
-		for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end
+		for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("Frame") then ch:Destroy() end end
 		emptyLabel.Visible=false
 	end
-
+	local function makeRow(p)
+		local row=Instance.new("Frame"); row.BackgroundColor3=THEME.soft; row.Size=UDim2.new(1,-12,0,32); row.Parent=listScroll
+		Instance.new("UICorner",row).CornerRadius=UDim.new(0,8)
+		-- checkbox
+		local ck=Instance.new("TextButton"); ck.Text=""; ck.Size=UDim2.fromOffset(24,24); ck.Position=UDim2.fromOffset(6,4)
+		ck.BackgroundColor3=Color3.fromRGB(50,52,66); ck.Parent=row; Instance.new("UICorner",ck).CornerRadius=UDim.new(0,6)
+		local mark=Instance.new("TextLabel"); mark.BackgroundTransparency=1; mark.Size=UDim2.fromScale(1,1); mark.Text="✓"; mark.TextColor3=THEME.text; mark.TextScaled=true; mark.Visible=false; mark.Parent=ck
+		-- label
+		local lbl=Instance.new("TextButton"); lbl.BackgroundTransparency=1; lbl.TextXAlignment=Enum.TextXAlignment.Left
+		lbl.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
+		lbl.Font=Enum.Font.Gotham; lbl.TextSize=14; lbl.TextColor3=THEME.text; lbl.Size=UDim2.new(1,-40,1,0); lbl.Position=UDim2.fromOffset(36,0); lbl.Parent=row
+		-- state
+		local function setSelected(on)
+			mark.Visible=on
+			if on then row.BackgroundColor3=Color3.fromRGB(60,120,200) else row.BackgroundColor3=THEME.soft end
+		end
+		-- init state from S
+		if S.aimMulti then
+			setSelected(S.aimTargets[p.UserId] == true)
+		else
+			setSelected(S.aimTargetUserId == p.UserId)
+		end
+		local function toggle()
+			if S.aimMulti then
+				if S.aimTargets[p.UserId] then S.aimTargets[p.UserId]=nil; setSelected(false) else S.aimTargets[p.UserId]=true; setSelected(true) end
+			else
+				S.aimTargetUserId = p.UserId
+				S.aimTargetLabel = (p.DisplayName~="" and p.DisplayName) or p.Name
+				-- rafraîchir toutes les lignes pour single
+				for _,other in ipairs(listScroll:GetChildren()) do
+					if other:IsA("Frame") then
+						local ckBtn = other:FindFirstChildWhichIsA("TextButton")
+						local mk = ckBtn and ckBtn:FindFirstChildWhichIsA("TextLabel")
+						if mk then mk.Visible=false end
+						other.BackgroundColor3=THEME.soft
+					end
+				end
+				setSelected(true)
+				S.aimTargets = {} -- clear multi set
+			end
+			updateCountLabel()
+		end
+		ck.MouseButton1Click:Connect(toggle)
+		lbl.MouseButton1Click:Connect(toggle)
+	end
 	local function rebuild(filterQ)
 		clearButtons()
-		local others=listOthersAim()
-		local count=0
+		local others=listOthersSorted()
+		local has=0
 		for _,p in ipairs(others) do
-			if matches(p, filterQ) then
-				count += 1
-				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
-				b.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
-				b.Font=Enum.Font.Gotham; b.TextSize=14; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listScroll
-				Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
-				b.MouseButton1Click:Connect(function()
-					S.aimTargetUserId=p.UserId; S.aimTargetLabel=(p.DisplayName~="" and p.DisplayName) or p.Name
-					dropdownBtn.Text="Cible : "..S.aimTargetLabel.."  ▾"; listHolder.Visible=false
-				end)
-			end
+			if matchesPlayer(p, filterQ) then makeRow(p); has+=1 end
 		end
-		if count==0 then emptyLabel.Visible=true end
-		resizeCanvas()
-		if S.aimTargetUserId and not Players:GetPlayerByUserId(S.aimTargetUserId) then
-			S.aimTargetUserId=nil; S.aimTargetLabel=nil; dropdownBtn.Text="Choisir une cible  ▾"
+		emptyLabel.Visible = (has==0)
+		resizeCanvas(); updateCountLabel()
+		-- purge selection des joueurs qui ont quitté
+		if S.aimMulti then
+			for uid,_ in pairs(S.aimTargets) do if not Players:GetPlayerByUserId(uid) then S.aimTargets[uid]=nil end end
+		else
+			if S.aimTargetUserId and not Players:GetPlayerByUserId(S.aimTargetUserId) then S.aimTargetUserId=nil; S.aimTargetLabel=nil end
 		end
 	end
 
-	dropdownBtn.MouseButton1Click:Connect(function()
-		listHolder.Visible=not listHolder.Visible
-		if listHolder.Visible then rebuild(searchBox.Text) end
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function() rebuild(searchBox.Text) end)
+	btnEnemies.MouseButton1Click:Connect(function() selectEnemies(); rebuild(searchBox.Text) end)
+	btnAll.MouseButton1Click:Connect(function()
+		S.aimTargets = {}
+		for _,p in ipairs(Players:GetPlayers()) do if p~=LP and isValidTarget(p) then S.aimTargets[p.UserId]=true end end
+		rebuild(searchBox.Text)
 	end)
-	refreshBtn.MouseButton1Click:Connect(function() rebuild(searchBox.Text) end)
-	searchBox:GetPropertyChangedSignal("Text"):Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
-	clearBtn.MouseButton1Click:Connect(function() searchBox.Text=""; rebuild("") end)
-	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
-	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
+	btnNone.MouseButton1Click:Connect(function() clearSelection(); rebuild(searchBox.Text) end)
+	Players.PlayerAdded:Connect(function() rebuild(searchBox.Text) end)
+	Players.PlayerRemoving:Connect(function() rebuild(searchBox.Text) end)
+
+	-- build initial
+	rebuild("")
 
 	-- Toggle aimbot
 	Toggle.MouseButton1Click:Connect(function()
@@ -720,33 +845,47 @@ local dragging,offset
 local function beginDrag(io) dragging=true; local p=Main.AbsolutePosition; offset=Vector2.new(io.Position.X-p.X, io.Position.Y-p.Y) end
 local function updateDrag(io) if not dragging then return end; local x=io.Position.X-offset.X; local y=io.Position.Y-offset.Y; x,y=clampToScreen(x,y); Main.Position=UDim2.fromOffset(x,y) end
 local function endDrag() dragging=false end
-for _,area in ipairs({Header,Main}) do area.InputBegan:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 then beginDrag(io); io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end) end end) end
+for _,area in ipairs({Header,Main}) do
+	area.InputBegan:Connect(function(io)
+		if io.UserInputType==Enum.UserInputType.MouseButton1 then
+			beginDrag(io)
+			io.Changed:Connect(function() if io.UserInputState==Enum.UserInputState.End then endDrag() end end)
+		end
+	end)
+end
 UIS.InputChanged:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseMovement then updateDrag(io) end end)
 
 local function toggleUI(state) if typeof(state)=="boolean" then S.uiVisible=state else S.uiVisible=not S.uiVisible end; UI.Enabled=S.uiVisible end
 HideBtn.MouseButton1Click:Connect(function() toggleUI(false) end)
+PanicBtn.MouseButton1Click:Connect(function()
+	S.speedOn=false; speed_disable()
+	S.flyOn=false; fly_disable()
+	S.lightOn=false; light_disable()
+	S.espOn=false; esp_disable()
+	S.hitboxOn=false; hitbox_disable()
+	S.tpFollow=false
+	S.noclipOn=false; noclip_disable()
+	S.ijOn=false; disconnect(S.ijConn); S.ijConn=nil
+	S.aimOn=false; aimbot_disable()
+	toggleUI(false)
+end)
+
 UIS.InputBegan:Connect(function(io,gp)
 	if gp or UIS:GetFocusedTextBox() then return end
 	if io.UserInputType==Enum.UserInputType.Keyboard then
 		local shift = UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
-		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() end
+		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then
+			toggleUI()
+		end
 		if (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) and io.KeyCode==Enum.KeyCode.P then
-			S.speedOn=false; speed_disable()
-			S.flyOn=false; fly_disable()
-			S.lightOn=false; light_disable()
-			S.espOn=false; esp_disable()
-			S.hitboxOn=false; hitbox_disable()
-			S.tpFollow=false
-			S.noclipOn=false; noclip_disable()
-			S.ijOn=false; disconnect(S.ijConn); S.ijConn=nil
-			S.aimOn=false; aimbot_disable()
-			toggleUI(false)
+			PanicBtn:Activate()
 		end
 	end
 end)
 
+-- micro-anim d'entrée
 Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset+20)
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.2] Aimbot + recherche OK • NoClip/InfiniteJump OK • UI animée ✅")
+print("[Baba HUB v7.0] Multi-aimbot + recherche + ennemis OK • ESP/HUD optimisés • NoClip/Infinite/Fly/TP ✅")
