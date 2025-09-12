@@ -1,16 +1,14 @@
 --[[
-  👑 Baba HUB v7.0 — Aimbot Multi•Head • ESP constant • Speed stable • NoClip • Infinite Jump • Fly • TP+Follow • Light • Hitbox
-  Nouveaux + importants :
-   - Aimbot multi-cibles (2v2/3v3/4v4) : sélection multiple, priorité à la cible la plus proche, recherche + “Ennemis/Tout/Aucun”.
-   - ESP sans box 3D (Highlight + labels) toujours visible, cadence adaptative (anti-lag).
-   - UI soignée (Baba HUB), micro-animations, Panic Alt+P. 
-   - Optimisations partout (batching, throttling, cleanup).
+  👑 Baba HUB v7.1 — Aimbot Multi•Head (ennemis only) • ESP constant • Speed stable • NoClip • Infinite Jump • Fly • TP+Follow • Light • Hitbox
+
+  ✅ FIX majeur : l'aimbot cible UNIQUEMENT les ennemis quand "Ignorer mes coéquipiers" est activé (par défaut ON).
+     Détection coéquipiers robuste : Team, TeamColor et attributs d'équipe (Team/Equipe/Faction/Side, etc).
 
   Raccourcis UI : "$" (⇧+4) • F2 • Insert • RightCtrl   |   Panic: Alt+P
 ]]
 
-if _G.__BABA_HUB_V70 then return end
-_G.__BABA_HUB_V70 = true
+if _G.__BABA_HUB_V71 then return end
+_G.__BABA_HUB_V71 = true
 
 --== Services ==--
 local Players  = game:GetService("Players")
@@ -87,13 +85,13 @@ local S = {
 	aimMaxDist=15000,
 	aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true,
-	aimTeamCheck=false,     -- ignore teammates
-	-- Single target (mode simple)
+	aimTeamCheck=true,      -- ✅ par défaut ON : on ignore mes teammates
+	-- Single target (optionnel)
 	aimTargetUserId=nil, aimTargetLabel=nil,
 	-- Multi-cibles
-	aimMulti=true,          -- par défaut ON (2v2/3v3/4v4)
+	aimMulti=true,          -- ON par défaut (2v2/3v3/4v4)
 	aimTargets={},          -- set[userId]=true
-	aimPreferClosest=true,  -- choisit la cible la plus proche
+	aimPreferClosest=true,  -- priorise la cible la plus proche
 
 	-- internals
 	_playersCache = {},
@@ -101,7 +99,7 @@ local S = {
 }
 
 --== UI Root ==--
-local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv70"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv71"; safeParent(UI)
 
 local Main = Instance.new("Frame")
 Main.Size = UDim2.fromOffset(600, 980)
@@ -132,7 +130,7 @@ local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.Back
 local Title=Instance.new("TextLabel")
 Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v7.0 — Aimbot Multi"; Title.Parent=Header
+Title.Text="👑 Baba HUB v7.1 — Aimbot Multi (ennemis)"; Title.Parent=Header
 local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
 local Grad = Instance.new("UIGradient", Flair)
 Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
@@ -233,7 +231,7 @@ end
 
 --== Features ==--
 
--- SPEED (stable, no shift)
+-- SPEED
 local function speed_enable()
 	S.humanoid = getHum()
 	S.normalSpeed = S.humanoid.WalkSpeed
@@ -255,7 +253,7 @@ local function speed_disable()
 end
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- FLY (clean exit, configurable)
+-- FLY
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -430,15 +428,42 @@ end
 if LP.Character then ij_bind(LP.Character) end
 LP.CharacterAdded:Connect(function(c) if S.ijOn then ij_bind(c) end end)
 
+-- ========= TEAM DETECTION (robuste) =========
+local ATTR_KEYS = {"Team","team","TEAM","Equipe","Équipe","Faction","Side","Allegiance","Group"}
+local function getTeamToken(plr)
+	-- Prend Team, TeamColor, puis attributs (sur Player ou Character)
+	if plr.Team then return "TEAM:"..tostring(plr.Team.Name) end
+	-- legacy Player.TeamColor (BrickColor)
+	local ok,colorOrNil = pcall(function() return plr.TeamColor end)
+	if ok and colorOrNil then return "TC:"..tostring(colorOrNil) end
+	-- attributs texte/catégorie
+	for _,k in ipairs(ATTR_KEYS) do
+		local v = plr:GetAttribute(k)
+		if v ~= nil then return "ATTR:"..tostring(v) end
+	end
+	local c=plr.Character
+	if c then
+		for _,k in ipairs(ATTR_KEYS) do
+			local v=c:GetAttribute(k)
+			if v ~= nil then return "ATTR:"..tostring(v) end
+		end
+	end
+	return nil
+end
+local function isTeammate(a,b)
+	if not a or not b then return false end
+	local ta, tb = getTeamToken(a), getTeamToken(b)
+	return (ta ~= nil and tb ~= nil and ta == tb)
+end
+
 -- AIMBOT (multi-cibles)
-local function sameTeam(a,b) return (a and b and a.Team and b.Team and a.Team==b.Team) end
 local function playerHead(p)
 	if not p or not p.Character then return nil end
 	return p.Character:FindFirstChild("Head") or p.Character:FindFirstChild("HumanoidRootPart")
 end
 local function isValidTarget(p)
 	if not p or p==LP then return false end
-	if S.aimTeamCheck and sameTeam(LP, p) then return false end
+	if S.aimTeamCheck and isTeammate(LP, p) then return false end -- ✅ ignore teammate
 	local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
 	local head = playerHead(p)
 	return hum and hum.Health>0 and head ~= nil
@@ -677,16 +702,18 @@ end
 local function selectEnemies()
 	S.aimTargets = {}
 	for _,p in ipairs(Players:GetPlayers()) do
-		if p~=LP and not sameTeam(LP,p) and isValidTarget(p) then S.aimTargets[p.UserId]=true end
+		if p~=LP and isValidTarget(p) and (not isTeammate(LP,p)) then
+			S.aimTargets[p.UserId]=true
+		end
 	end
 end
 local function clearSelection() S.aimTargets = {}; S.aimTargetUserId=nil; S.aimTargetLabel=nil end
 
 do
-	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Multi-sélection (2v2/3v3/4v4) + recherche. Vise toujours la tête la plus proche.",560)
+	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Multi-sélection (2v2/3v3/4v4), vise toujours la tête ENNEMIE la plus proche.",560)
 	local Toggle,setT=makeToggle(Card,false)
 
-	-- Ligne 1 : Options principales
+	-- Options principales
 	local opt1=Instance.new("Frame"); opt1.BackgroundTransparency=1; opt1.Position=UDim2.fromOffset(14,56); opt1.Size=UDim2.new(1,-28,0,28); opt1.Parent=Card
 	local lblHold=makeBadge("Maintenir RMB pour viser"); lblHold.Position=UDim2.fromOffset(0,6); lblHold.Parent=opt1
 	local holdT,setHold=makeToggle(opt1,S.aimHold); holdT.Position=UDim2.new(1,-58,0,2); holdT.Size=UDim2.fromOffset(58,24)
@@ -698,7 +725,7 @@ do
 	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
 
 	local opt3=Instance.new("Frame"); opt3.BackgroundTransparency=1; opt3.Position=UDim2.fromOffset(14,120); opt3.Size=UDim2.new(1,-28,0,28); opt3.Parent=Card
-	local lblTeam=makeBadge("Ignorer mes coéquipiers"); lblTeam.Position=UDim2.fromOffset(0,6); lblTeam.Parent=opt3
+	local lblTeam=makeBadge("Ignorer mes coéquipiers (ennemis only)"); lblTeam.Position=UDim2.fromOffset(0,6); lblTeam.Parent=opt3
 	local teamT,setTeam=makeToggle(opt3,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
 	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
 
@@ -716,12 +743,10 @@ do
 	local box=Instance.new("Frame"); box.Size=UDim2.new(1,-28,0,220); box.Position=UDim2.fromOffset(14,372)
 	box.BackgroundColor3=Color3.fromRGB(40,42,56); box.BorderSizePixel=0; box.Parent=Card; Instance.new("UICorner",box).CornerRadius=UDim.new(0,10)
 
-	-- Barre de recherche
 	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-16,0,30); searchBox.Position=UDim2.fromOffset(8,8)
 	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
 	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=box; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
 
-	-- Boutons rapides
 	local btnBar=Instance.new("Frame"); btnBar.BackgroundTransparency=1; btnBar.Position=UDim2.fromOffset(8,44); btnBar.Size=UDim2.new(1,-16,0,30); btnBar.Parent=box
 	local bl=Instance.new("UIListLayout",btnBar); bl.FillDirection=Enum.FillDirection.Horizontal; bl.Padding=UDim.new(0,8)
 	local function miniBtn(txt, col)
@@ -732,7 +757,6 @@ do
 	local btnAll     = miniBtn("Tout", Color3.fromRGB(90,180,120))
 	local btnNone    = miniBtn("Aucun", THEME.danger)
 
-	-- Liste des joueurs
 	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-84); listScroll.Position=UDim2.fromOffset(8,78)
 	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=box
 	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
@@ -742,11 +766,8 @@ do
 	local selCount=Instance.new("TextLabel"); selCount.BackgroundTransparency=1; selCount.Position=UDim2.new(1,-160,0,8); selCount.Size=UDim2.fromOffset(150,20)
 	selCount.TextXAlignment=Enum.TextXAlignment.Right; selCount.Font=Enum.Font.GothamSemibold; selCount.TextSize=12; selCount.TextColor3=THEME.sub; selCount.Parent=box
 	local function updateCountLabel()
-		if S.aimMulti then
-			selCount.Text = "Sélection : "..tostring(countSelected())
-		else
-			selCount.Text = S.aimTargetUserId and ("Cible : @"..(Players:GetPlayerByUserId(S.aimTargetUserId).Name)) or "Cible : (aucune)"
-		end
+		if S.aimMulti then selCount.Text = "Sélection : "..tostring(countSelected())
+		else selCount.Text = S.aimTargetUserId and ("Cible : @"..(Players:GetPlayerByUserId(S.aimTargetUserId).Name)) or "Cible : (aucune)" end
 	end
 	local function resizeCanvas()
 		local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("Frame") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end
@@ -759,32 +780,21 @@ do
 	local function makeRow(p)
 		local row=Instance.new("Frame"); row.BackgroundColor3=THEME.soft; row.Size=UDim2.new(1,-12,0,32); row.Parent=listScroll
 		Instance.new("UICorner",row).CornerRadius=UDim.new(0,8)
-		-- checkbox
 		local ck=Instance.new("TextButton"); ck.Text=""; ck.Size=UDim2.fromOffset(24,24); ck.Position=UDim2.fromOffset(6,4)
 		ck.BackgroundColor3=Color3.fromRGB(50,52,66); ck.Parent=row; Instance.new("UICorner",ck).CornerRadius=UDim.new(0,6)
 		local mark=Instance.new("TextLabel"); mark.BackgroundTransparency=1; mark.Size=UDim2.fromScale(1,1); mark.Text="✓"; mark.TextColor3=THEME.text; mark.TextScaled=true; mark.Visible=false; mark.Parent=ck
-		-- label
 		local lbl=Instance.new("TextButton"); lbl.BackgroundTransparency=1; lbl.TextXAlignment=Enum.TextXAlignment.Left
 		lbl.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
 		lbl.Font=Enum.Font.Gotham; lbl.TextSize=14; lbl.TextColor3=THEME.text; lbl.Size=UDim2.new(1,-40,1,0); lbl.Position=UDim2.fromOffset(36,0); lbl.Parent=row
-		-- state
-		local function setSelected(on)
-			mark.Visible=on
-			if on then row.BackgroundColor3=Color3.fromRGB(60,120,200) else row.BackgroundColor3=THEME.soft end
-		end
-		-- init state from S
-		if S.aimMulti then
-			setSelected(S.aimTargets[p.UserId] == true)
-		else
-			setSelected(S.aimTargetUserId == p.UserId)
-		end
+		local function setSelected(on) mark.Visible=on; row.BackgroundColor3= on and Color3.fromRGB(60,120,200) or THEME.soft end
+		if S.aimMulti then setSelected(S.aimTargets[p.UserId]==true) else setSelected(S.aimTargetUserId==p.UserId) end
 		local function toggle()
 			if S.aimMulti then
-				if S.aimTargets[p.UserId] then S.aimTargets[p.UserId]=nil; setSelected(false) else S.aimTargets[p.UserId]=true; setSelected(true) end
+				if S.aimTargets[p.UserId] then S.aimTargets[p.UserId]=nil; setSelected(false)
+				else S.aimTargets[p.UserId]=true; setSelected(true) end
 			else
 				S.aimTargetUserId = p.UserId
 				S.aimTargetLabel = (p.DisplayName~="" and p.DisplayName) or p.Name
-				-- rafraîchir toutes les lignes pour single
 				for _,other in ipairs(listScroll:GetChildren()) do
 					if other:IsA("Frame") then
 						local ckBtn = other:FindFirstChildWhichIsA("TextButton")
@@ -794,7 +804,7 @@ do
 					end
 				end
 				setSelected(true)
-				S.aimTargets = {} -- clear multi set
+				S.aimTargets = {}
 			end
 			updateCountLabel()
 		end
@@ -810,7 +820,6 @@ do
 		end
 		emptyLabel.Visible = (has==0)
 		resizeCanvas(); updateCountLabel()
-		-- purge selection des joueurs qui ont quitté
 		if S.aimMulti then
 			for uid,_ in pairs(S.aimTargets) do if not Players:GetPlayerByUserId(uid) then S.aimTargets[uid]=nil end end
 		else
@@ -829,10 +838,8 @@ do
 	Players.PlayerAdded:Connect(function() rebuild(searchBox.Text) end)
 	Players.PlayerRemoving:Connect(function() rebuild(searchBox.Text) end)
 
-	-- build initial
 	rebuild("")
 
-	-- Toggle aimbot
 	Toggle.MouseButton1Click:Connect(function()
 		S.aimOn = not S.aimOn; setT(S.aimOn)
 		if S.aimOn then aimbot_enable() else aimbot_disable() end
@@ -888,4 +895,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v7.0] Multi-aimbot + recherche + ennemis OK • ESP/HUD optimisés • NoClip/Infinite/Fly/TP ✅")
+print("[Baba HUB v7.1] Aimbot ENNEMIS OK • TeamCheck robuste • ESP/HUD optimisés • NoClip/Infinite/Fly/TP ✅")
