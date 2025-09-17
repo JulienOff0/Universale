@@ -1,6 +1,6 @@
 --[[
-  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche)
+  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche) • AntiAFK
   Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
 ]]
 
@@ -13,6 +13,7 @@ local UIS      = game:GetService("UserInputService")
 local RS       = game:GetService("RunService")
 local TS       = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
+local VU       = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
 
 local function getChar() return LP.Character or LP.CharacterAdded:Wait() end
@@ -83,8 +84,11 @@ local S = {
 	aimMaxDist=15000,
 	aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true,
-	aimTeamCheck=false,     -- ignore tes teammates si ON
+	aimTeamCheck=false,
 	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
+
+	-- Anti-AFK
+	afkOn=false, afkConn=nil, afkAlive=false, afkThread=nil, afkInterval=240, afkJitter=30,
 
 	-- internals
 	_playersCache = {},
@@ -94,7 +98,7 @@ local S = {
 local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv62"; safeParent(UI)
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(580, 880)
+Main.Size = UDim2.fromOffset(580, 1000) -- + Anti-AFK (UI plus haute)
 Main.BackgroundColor3 = THEME.bg
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -128,7 +132,7 @@ Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorS
 Grad.Rotation = 25
 
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,18)
-Hint.Size=UDim2.fromOffset(330,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
+Hint.Size=UDim2.fromOffset(380,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
 Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P'; Hint.Parent=Header
 
 local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,14); HideBtn.Size=UDim2.fromOffset(30,30)
@@ -223,7 +227,7 @@ local function speed_disable()
 end
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- Fly (idem version précédente, stable)
+-- Fly
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -457,6 +461,68 @@ local function aimbot_enable()
 		else
 			local alpha = 1 - math.pow(1 - s, dt*60)
 			cam.CFrame = cam.CFrame:Lerp(want, math.clamp(alpha,0,1))
+		end
+	end)
+end
+
+--== Anti-AFK ==--
+local function disableIdledConnections()
+	pcall(function()
+		local gc = getconnections or get_signal_cons
+		if gc then
+			for _,c in ipairs(gc(LP.Idled)) do
+				if typeof(c)=="table" then
+					if c.Disable then pcall(function() c:Disable() end) end
+					if c.Disconnect then pcall(function() c:Disconnect() end) end
+				end
+			end
+		end
+	end)
+end
+
+local function antiAfk_disable()
+	S.afkAlive = false
+	disconnect(S.afkConn); S.afkConn=nil
+	S.afkThread = nil
+end
+
+local function antiAfk_enable()
+	antiAfk_disable()
+	disableIdledConnections()
+
+	-- 1) Réponse immédiate au signal Idled
+	S.afkConn = LP.Idled:Connect(function()
+		local cam = workspace.CurrentCamera
+		pcall(function()
+			VU:Button2Down(Vector2.new(0,0), cam and cam.CFrame or CFrame.new())
+			task.wait(0.1)
+			VU:Button2Up(Vector2.new(0,0),  cam and cam.CFrame or CFrame.new())
+		end)
+	end)
+
+	-- 2) Boucle proactive : clic + micro rotation de la caméra à intervalle + jitter
+	S.afkAlive = true
+	S.afkThread = task.spawn(function()
+		while S.afkAlive do
+			local jitter = math.clamp(S.afkJitter or 0, 0, 600)
+			local base   = math.clamp(S.afkInterval or 240, 30, 1200)
+			local waitFor = base + (jitter>0 and math.random(-jitter, jitter) or 0)
+			waitFor = math.max(5, waitFor)
+
+			local elapsed = 0
+			while S.afkAlive and elapsed < waitFor do
+				task.wait(1); elapsed += 1
+			end
+			if not S.afkAlive then break end
+
+			local cam = workspace.CurrentCamera
+			pcall(function()
+				if cam then
+					cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(math.random(-3,3)), 0)
+				end
+				VU:CaptureController()
+				VU:ClickButton2(Vector2.new(0,0), cam and cam.CFrame or CFrame.new())
+			end)
 		end
 	end)
 end
@@ -714,6 +780,18 @@ do
 	end)
 end
 
+-- Anti-AFK (UI)
+do
+	local Card=makeCard("🛡️ Anti-AFK","Empêche le kick AFK : clic virtuel + micro-mouvement. Intervalle + jitter réglables.",180)
+	local Toggle,setT=makeToggle(Card,false)
+	makeSlider(Card,"Intervalle (s)",30,1200,S.afkInterval,56,function(v) S.afkInterval=v end,function(v) return v.." s" end)
+	makeSlider(Card,"Jitter (±s)",0,600,S.afkJitter,118,function(v) S.afkJitter=v end,function(v) return "±"..v.." s" end)
+	Toggle.MouseButton1Click:Connect(function()
+		S.afkOn = not S.afkOn; setT(S.afkOn)
+		if S.afkOn then antiAfk_enable() else antiAfk_disable() end
+	end)
+end
+
 -- Drag + Hide + Panic
 local function clampToScreen(x,y) local vs=workspace.CurrentCamera.ViewportSize; local w,h=Main.AbsoluteSize.X,Main.AbsoluteSize.Y; return math.clamp(x,0,math.max(0,vs.X-w)), math.clamp(y,0,math.max(0,vs.Y-h)) end
 local dragging,offset
@@ -740,6 +818,7 @@ UIS.InputBegan:Connect(function(io,gp)
 			S.noclipOn=false; noclip_disable()
 			S.ijOn=false; disconnect(S.ijConn); S.ijConn=nil
 			S.aimOn=false; aimbot_disable()
+			S.afkOn=false; antiAfk_disable()
 			toggleUI(false)
 		end
 	end
@@ -749,4 +828,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.2] Aimbot + recherche OK • NoClip/InfiniteJump OK • UI animée ✅")
+print("[Baba HUB v6.2] Aimbot + recherche OK • NoClip/InfiniteJump OK • Anti-AFK OK • UI animée ✅")
