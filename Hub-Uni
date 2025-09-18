@@ -1,7 +1,7 @@
 --[[
-  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche) • AntiAFK
-  Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P
+  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK • Click TP (ALT)
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche) • AntiAFK • ClickTP
+  Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P  |  Click TP: Alt (si module ON)
 ]]
 
 if _G.__BABA_HUB_V62 then return end
@@ -78,17 +78,15 @@ local S = {
 	-- Aimbot (Hard-Lock)
 	aimOn=false, aimConn=nil,
 	aimTargetUserId=nil, aimTargetLabel=nil,
-	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2, -- RMB
-	aimSmooth=0,            -- 0 = snap instant
-	aimPredict=0.6,         -- 0..1 (prédiction simple)
-	aimMaxDist=15000,
-	aimHeadOffset=Vector3.new(0,0.2,0),
-	aimLockCam=true,
-	aimTeamCheck=false,
-	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
+	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2,
+	aimSmooth=0, aimPredict=0.6, aimMaxDist=15000, aimHeadOffset=Vector3.new(0,0.2,0),
+	aimLockCam=true, aimTeamCheck=false, __prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
 
 	-- Anti-AFK
 	afkOn=false, afkConn=nil, afkAlive=false, afkThread=nil, afkInterval=240, afkJitter=30,
+
+	-- Click TP
+	clickTPOn=false, ctUseCamCenter=false, ctMaxDist=2048, ctHeightOffset=3,
 
 	-- internals
 	_playersCache = {},
@@ -98,7 +96,7 @@ local S = {
 local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv62"; safeParent(UI)
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(580, 1000) -- + Anti-AFK (UI plus haute)
+Main.Size = UDim2.fromOffset(580, 1080) -- fenêtre un peu plus haute, scroll si besoin
 Main.BackgroundColor3 = THEME.bg
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -132,8 +130,8 @@ Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorS
 Grad.Rotation = 25
 
 local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,18)
-Hint.Size=UDim2.fromOffset(380,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
-Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P'; Hint.Parent=Header
+Hint.Size=UDim2.fromOffset(430,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
+Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P  |  Click TP: Alt'; Hint.Parent=Header
 
 local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,14); HideBtn.Size=UDim2.fromOffset(30,30)
 HideBtn.Text="✕"; HideBtn.TextSize=18; HideBtn.Font=Enum.Font.GothamBold; HideBtn.TextColor3=THEME.text; HideBtn.AutoButtonColor=true
@@ -151,7 +149,7 @@ local VList=Instance.new("UIListLayout",Content); VList.Padding=UDim.new(0,12); 
 local function refreshCanvas() Content.CanvasSize=UDim2.new(0,0,0,VList.AbsoluteContentSize.Y+8) end
 VList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshCanvas)
 
--- Helpers
+-- Helpers UI
 local function popIn(card) card.BackgroundTransparency=.12; tween(card,.18,{BackgroundTransparency=0}):Play() end
 local function makeBadge(text)
 	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12; B.TextXAlignment=Enum.TextXAlignment.Left
@@ -444,7 +442,6 @@ local function aimbot_enable()
 		local targetPos = head.Position + S.aimHeadOffset
 		if (camPos - targetPos).Magnitude > S.aimMaxDist then return end
 
-		-- prédiction simple
 		if S.aimPredict and S.aimPredict > 0 then
 			local vel = getVel(head)
 			if vel.Magnitude < 0.1 then
@@ -490,7 +487,6 @@ local function antiAfk_enable()
 	antiAfk_disable()
 	disableIdledConnections()
 
-	-- 1) Réponse immédiate au signal Idled
 	S.afkConn = LP.Idled:Connect(function()
 		local cam = workspace.CurrentCamera
 		pcall(function()
@@ -500,7 +496,6 @@ local function antiAfk_enable()
 		end)
 	end)
 
-	-- 2) Boucle proactive : clic + micro rotation de la caméra à intervalle + jitter
 	S.afkAlive = true
 	S.afkThread = task.spawn(function()
 		while S.afkAlive do
@@ -510,21 +505,72 @@ local function antiAfk_enable()
 			waitFor = math.max(5, waitFor)
 
 			local elapsed = 0
-			while S.afkAlive and elapsed < waitFor do
-				task.wait(1); elapsed += 1
-			end
+			while S.afkAlive and elapsed < waitFor do task.wait(1); elapsed += 1 end
 			if not S.afkAlive then break end
 
 			local cam = workspace.CurrentCamera
 			pcall(function()
-				if cam then
-					cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(math.random(-3,3)), 0)
-				end
-				VU:CaptureController()
-				VU:ClickButton2(Vector2.new(0,0), cam and cam.CFrame or CFrame.new())
+				if cam then cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(math.random(-3,3)), 0) end
+				VU:CaptureController(); VU:ClickButton2(Vector2.new(0,0), cam and cam.CFrame or CFrame.new())
 			end)
 		end
 	end)
+end
+
+--== Click Teleport (ALT) ==--
+local function ct_getRay()
+	local cam = workspace.CurrentCamera
+	if not cam then return nil end
+	if not S.ctUseCamCenter then
+		local m = LP:GetMouse()
+		if m and m.UnitRay then return m.UnitRay end
+	end
+	local vs = cam.ViewportSize
+	local ray = cam:ViewportPointToRay(vs.X/2, vs.Y/2)
+	return Ray.new(ray.Origin, ray.Direction) -- compat helper (we ne l'utilise pas direct)
+end
+
+local function ct_findHit(maxDist)
+	local cam = workspace.CurrentCamera; if not cam then return nil end
+	local origin, dir
+	if not S.ctUseCamCenter then
+		local m = LP:GetMouse()
+		if m and m.UnitRay then
+			origin = m.UnitRay.Origin
+			dir    = m.UnitRay.Direction
+		end
+	end
+	if not origin then
+		local vs = cam.ViewportSize
+		local r = cam:ViewportPointToRay(vs.X/2, vs.Y/2)
+		origin = r.Origin; dir = r.Direction
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { getChar() }
+	params.IgnoreWater = false
+
+	local dist = math.clamp(S.ctMaxDist or 2048, 10, 100000)
+	local rc = workspace:Raycast(origin, dir * dist, params)
+	local pos = rc and rc.Position or (origin + dir * dist)
+
+	-- Snap au sol (rayon vertical descendant) pour éviter d'être dans l'air
+	local from = pos + Vector3.new(0,500,0)
+	local down = workspace:Raycast(from, Vector3.new(0,-2000,0), params)
+	if down then pos = Vector3.new(pos.X, down.Position.Y, pos.Z) end
+	return pos
+end
+
+local function clicktp_perform()
+	local char=LP.Character; if not char then return end
+	local hrp=char:FindFirstChild("HumanoidRootPart"); local hum=char:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum or hum.Health<=0 then return end
+	local hit = ct_findHit(S.ctMaxDist)
+	if not hit then return end
+	local yoff = tonumber(S.ctHeightOffset or 3) or 3
+	local dest = hit + Vector3.new(0, math.clamp(yoff,-50,50), 0)
+	char:PivotTo(CFrame.new(dest))
+	print(string.format("[Baba HUB] Click TP → (%.1f, %.1f, %.1f)", dest.X, dest.Y, dest.Z))
 end
 
 --== UI Cards ==--
@@ -673,7 +719,6 @@ do
 	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste + recherche → sélection → la caméra colle la tête (snap).",430)
 	local Toggle,setT=makeToggle(Card,false)
 
-	-- Ligne 1 : Choix cible + Refresh
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
 	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
 	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=THEME.text
@@ -681,7 +726,6 @@ do
 	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
 
-	-- Ligne 2/3 : options
 	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
 	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
 	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
@@ -697,16 +741,13 @@ do
 	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
 	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
 
-	-- Sliders
 	makeSlider(Card,"Lissage",0,100,S.aimSmooth,194,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
 	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),256,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
 	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,318,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
 
-	-- === Popup Liste + Recherche ===
 	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-28,0,180); listHolder.Position=UDim2.fromOffset(14,360)
 	listHolder.BackgroundColor3=Color3.fromRGB(40,42,56); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
 
-	-- Barre de recherche
 	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-56,0,30); searchBox.Position=UDim2.fromOffset(8,8)
 	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
 	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
@@ -715,7 +756,6 @@ do
 	local clearBtn=Instance.new("TextButton"); clearBtn.Size=UDim2.fromOffset(30,30); clearBtn.Position=UDim2.new(1,-38,0,8); clearBtn.Text="✕"; clearBtn.Font=Enum.Font.GothamBold
 	clearBtn.TextSize=16; clearBtn.TextColor3=THEME.text; clearBtn.BackgroundColor3=THEME.danger; clearBtn.Parent=listHolder; Instance.new("UICorner",clearBtn).CornerRadius=UDim.new(1,0)
 
-	-- Liste scroll
 	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-48); listScroll.Position=UDim2.fromOffset(8,40)
 	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=listHolder
 	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
@@ -724,7 +764,6 @@ do
 	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun résultat."
 	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
 
-	-- filtre helper
 	local function matches(p, q)
 		if not q or q=="" then return true end
 		q = string.lower(q)
@@ -734,11 +773,7 @@ do
 		return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
 	end
 
-	local function clearButtons()
-		for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end
-		emptyLabel.Visible=false
-	end
-
+	local function clearButtons() for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
 	local function rebuild(filterQ)
 		clearButtons()
 		local others=listOthersAim()
@@ -763,17 +798,13 @@ do
 		end
 	end
 
-	dropdownBtn.MouseButton1Click:Connect(function()
-		listHolder.Visible=not listHolder.Visible
-		if listHolder.Visible then rebuild(searchBox.Text) end
-	end)
+	dropdownBtn.MouseButton1Click:Connect(function() listHolder.Visible=not listHolder.Visible; if listHolder.Visible then rebuild(searchBox.Text) end end)
 	refreshBtn.MouseButton1Click:Connect(function() rebuild(searchBox.Text) end)
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	clearBtn.MouseButton1Click:Connect(function() searchBox.Text=""; rebuild("") end)
 	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 
-	-- Toggle aimbot
 	Toggle.MouseButton1Click:Connect(function()
 		S.aimOn = not S.aimOn; setT(S.aimOn)
 		if S.aimOn then aimbot_enable() else aimbot_disable() end
@@ -792,7 +823,20 @@ do
 	end)
 end
 
--- Drag + Hide + Panic
+-- Click TP (ALT) UI
+do
+	local Card=makeCard("🖱️ Click TP (ALT)","Appuie sur ALT → TP au point visé. Option centre caméra.",170)
+	local Toggle,setT=makeToggle(Card,false)
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
+	local lbl=makeBadge("Ray depuis centre caméra"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
+	local camT,setCam=makeToggle(row,S.ctUseCamCenter); camT.Position=UDim2.new(1,-58,0,2); camT.Size=UDim2.fromOffset(58,24)
+	camT.MouseButton1Click:Connect(function() S.ctUseCamCenter = not S.ctUseCamCenter; setCam(S.ctUseCamCenter) end)
+	makeSlider(Card,"Distance max",100,10000,S.ctMaxDist,96,function(v) S.ctMaxDist=v end,function(v) return v.." studs" end)
+	makeSlider(Card,"Offset hauteur", -20, 50, S.ctHeightOffset, 130, function(v) S.ctHeightOffset=v end, function(v) return v.." u" end)
+	Toggle.MouseButton1Click:Connect(function() S.clickTPOn = not S.clickTPOn; setT(S.clickTPOn) end)
+end
+
+-- Drag + Hide + Panic + Hotkeys
 local function clampToScreen(x,y) local vs=workspace.CurrentCamera.ViewportSize; local w,h=Main.AbsoluteSize.X,Main.AbsoluteSize.Y; return math.clamp(x,0,math.max(0,vs.X-w)), math.clamp(y,0,math.max(0,vs.Y-h)) end
 local dragging,offset
 local function beginDrag(io) dragging=true; local p=Main.AbsolutePosition; offset=Vector2.new(io.Position.X-p.X, io.Position.Y-p.Y) end
@@ -803,11 +847,15 @@ UIS.InputChanged:Connect(function(io) if io.UserInputType==Enum.UserInputType.Mo
 
 local function toggleUI(state) if typeof(state)=="boolean" then S.uiVisible=state else S.uiVisible=not S.uiVisible end; UI.Enabled=S.uiVisible end
 HideBtn.MouseButton1Click:Connect(function() toggleUI(false) end)
+
 UIS.InputBegan:Connect(function(io,gp)
 	if gp or UIS:GetFocusedTextBox() then return end
 	if io.UserInputType==Enum.UserInputType.Keyboard then
 		local shift = UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
-		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() end
+		-- Toggle UI
+		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() return end
+
+		-- Panic Alt+P
 		if (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) and io.KeyCode==Enum.KeyCode.P then
 			S.speedOn=false; speed_disable()
 			S.flyOn=false; fly_disable()
@@ -819,7 +867,18 @@ UIS.InputBegan:Connect(function(io,gp)
 			S.ijOn=false; disconnect(S.ijConn); S.ijConn=nil
 			S.aimOn=false; aimbot_disable()
 			S.afkOn=false; antiAfk_disable()
+			S.clickTPOn=false
 			toggleUI(false)
+			return
+		end
+
+		-- Click TP (ALT) — petite latence pour ne pas gêner Alt+P
+		if S.clickTPOn and (io.KeyCode==Enum.KeyCode.LeftAlt or io.KeyCode==Enum.KeyCode.RightAlt) then
+			task.spawn(function()
+				task.wait(0.03)
+				if UIS:IsKeyDown(Enum.KeyCode.P) then return end -- l'utilisateur voulait Panic
+				clicktp_perform()
+			end)
 		end
 	end
 end)
@@ -828,4 +887,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.2] Aimbot + recherche OK • NoClip/InfiniteJump OK • Anti-AFK OK • UI animée ✅")
+print("[Baba HUB v6.2] Aimbot+recherche OK • NoClip/InfiniteJump OK • Anti-AFK OK • Click TP (ALT) OK • UI animée ✅")
