@@ -1,11 +1,11 @@
 --[[
-  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP • Speed • Fly • NoClip • Infinite Jump • Anti-AFK • Click TP
-  + Aimbot Amélioré: Hitbox Circle fonctionnel (pièces invisibles autour des joueurs)
-  Raccourcis: "$"(⇧+4) • F2 • Insert • RightCtrl | Panic: Alt+P | Click TP: Alt
+  👑 Baba HUB v6.3 — Aimbot amélioré + Hitbox circulaire • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK • Click TP (ALT)
+  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox circulaire • Aimbot Head (+Recherche + Cercle de visée) • AntiAFK • ClickTP
+  Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P  |  Click TP: Alt (si module ON)
 ]]
 
-if _G.__BABA_HUB_V62 then return end
-_G.__BABA_HUB_V62 = true
+if _G.__BABA_HUB_V63 then return end
+_G.__BABA_HUB_V63 = true
 
 --== Services ==--
 local Players  = game:GetService("Players")
@@ -19,21 +19,25 @@ local LP = Players.LocalPlayer
 local function getChar() return LP.Character or LP.CharacterAdded:Wait() end
 local function getHum()  return (getChar()):WaitForChild("Humanoid") end
 
---== Theme ==--
+--== Theme amélioré ==--
 local THEME = {
-  bg     = Color3.fromRGB(11,13,17),
-  panel  = Color3.fromRGB(18,22,31),
-  soft   = Color3.fromRGB(28,32,42),
-  stroke = Color3.fromRGB(255,255,255),
-  text   = Color3.fromRGB(238,241,255),
-  sub    = Color3.fromRGB(175,182,205),
-  acc1   = Color3.fromRGB(120,160,255),
-  acc2   = Color3.fromRGB(220,120,255),
-  ok     = Color3.fromRGB(68,205,128),
-  danger = Color3.fromRGB(220,70,70),
+  bg       = Color3.fromRGB(8,10,14),
+  panel    = Color3.fromRGB(15,18,26),
+  soft     = Color3.fromRGB(25,29,38),
+  stroke   = Color3.fromRGB(50,55,70),
+  text     = Color3.fromRGB(230,235,255),
+  sub      = Color3.fromRGB(160,170,195),
+  acc1     = Color3.fromRGB(100,150,255),
+  acc2     = Color3.fromRGB(200,100,255),
+  ok       = Color3.fromRGB(60,200,120),
+  danger   = Color3.fromRGB(230,60,60),
+  warning  = Color3.fromRGB(255,170,50),
+  -- Dégradés
+  headerGrad = {Color3.fromRGB(15,18,26), Color3.fromRGB(25,30,45)},
+  cardGrad   = {Color3.fromRGB(18,22,31), Color3.fromRGB(15,18,26)},
 }
 
---== Utils ==--
+--== Utils améliorés ==--
 local function safeParent(gui)
 	gui.ResetOnSpawn = false
 	gui.IgnoreGuiInset = true
@@ -42,7 +46,13 @@ local function safeParent(gui)
 	local ok, core = pcall(function() return game:GetService("CoreGui") end)
 	gui.Parent = ok and core or LP:WaitForChild("PlayerGui")
 end
-local function tween(o,t,props) return TS:Create(o, TweenInfo.new(t or .18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props) end
+
+local function tween(o,t,props) 
+	local tw = TS:Create(o, TweenInfo.new(t or .18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+	tw:Play()
+	return tw
+end
+
 local function disconnect(c) if c then c:Disconnect() end end
 local function disconnectAll(tab) for i=#tab,1,-1 do pcall(function() tab[i]:Disconnect() end); tab[i]=nil end end
 
@@ -60,11 +70,12 @@ local S = {
 	-- Light
 	lightOn=false, lightBackup=nil,
 
-	-- ESP
+	-- ESP (avec highlight amélioré)
 	espOn=false, espConn=nil, espHz=20, espShowUsername=true, espMaxDist=2500, espShowAura=true, espShowLabels=true,
 
-	-- Hitbox
-	hitboxOn=false, hitboxSize=10, hitboxConn=nil, hitboxOrig={},
+	-- Hitbox circulaire (NOUVEAU)
+	hitboxOn=false, hitboxRadius=5, hitboxConn=nil, hitboxParts={},
+	hitboxCircle=nil, -- cercle visuel
 
 	-- TP
 	tpSelectedUserId=nil, tpSelectedLabel=nil, tpFollow=false,
@@ -75,20 +86,16 @@ local S = {
 	-- Infinite Jump
 	ijOn=false, ijBoost=55, ijConn=nil,
 
-	-- Aimbot (Hard-Lock)
+	-- Aimbot amélioré
 	aimOn=false, aimConn=nil,
 	aimTargetUserId=nil, aimTargetLabel=nil,
 	aimHold=true, aimHoldMouseButton=Enum.UserInputType.MouseButton2,
 	aimSmooth=0, aimPredict=0.6, aimMaxDist=15000, aimHeadOffset=Vector3.new(0,0.2,0),
-	aimLockCam=true, aimTeamCheck=false, __prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
-
-	-- Aimbot Amélioré (Hitbox Parts INVISIBLES)
-	aimEnhancedOn=false,
-	aimEnhancedSize=10,
-	aimEnhancedShowCircle=true,
-	aimEnhancedConn=nil,
-	aimEnhancedCircleGui=nil,
-	aimEnhancedHitboxParts={}, -- [player] = {parts}
+	aimLockCam=true, aimTeamCheck=false, 
+	aimShowCircle=true, -- NOUVEAU: cercle de visée
+	aimCircleRadius=0.5, -- NOUVEAU: rayon du cercle de hitbox
+	__prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
+	aimCircle=nil, -- NOUVEAU: objet cercle
 
 	-- Anti-AFK
 	afkOn=false, afkConn=nil, afkAlive=false, afkThread=nil, afkInterval=240, afkJitter=30,
@@ -100,118 +107,331 @@ local S = {
 	_playersCache = {},
 }
 
---== UI Root ==--
-local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv62"; safeParent(UI)
+--== UI Root amélioré ==--
+local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv63"; safeParent(UI)
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(580, 1080)
+Main.Size = UDim2.fromOffset(600, 650) -- Fenêtre plus compacte avec scroll
 Main.BackgroundColor3 = THEME.bg
 Main.BorderSizePixel = 0
 Main.Active = true
 Main.Parent = UI
-do local vs=workspace.CurrentCamera.ViewportSize
+
+do 
+	local vs=workspace.CurrentCamera.ViewportSize
 	Main.Position = UDim2.fromOffset(math.floor(vs.X/2 - Main.Size.X.Offset/2), math.floor(vs.Y/2 - Main.Size.Y.Offset/2))
 end
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0,16)
-local stroke=Instance.new("UIStroke",Main) stroke.Thickness=1.2; stroke.Transparency=.14; stroke.Color=THEME.stroke
 
+-- Bordure avec dégradé
+local stroke=Instance.new("UIStroke",Main) 
+stroke.Thickness=1.5
+stroke.Transparency=.1
+stroke.Color=THEME.acc1
+
+local gradient=Instance.new("UIGradient",stroke)
+gradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, THEME.acc1),
+	ColorSequenceKeypoint.new(0.5, THEME.acc2),
+	ColorSequenceKeypoint.new(1, THEME.acc1)
+}
+gradient.Rotation = 45
+
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0,14)
+
+-- Ombre portée améliorée
 local Shadow=Instance.new("ImageLabel")
 Shadow.Image="rbxassetid://5028857084"
-Shadow.ImageTransparency=.52
+Shadow.ImageTransparency=.45
 Shadow.ScaleType=Enum.ScaleType.Slice
 Shadow.SliceCenter=Rect.new(24,24,276,276)
 Shadow.AnchorPoint=Vector2.new(.5,.5)
 Shadow.Position=UDim2.fromScale(.5,.5)
-Shadow.Size=UDim2.new(1,40,1,40)
+Shadow.Size=UDim2.new(1,50,1,50)
 Shadow.BackgroundTransparency=1
 Shadow.Parent=Main
 
--- Header
-local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.BackgroundTransparency=1; Header.Active=true; Header.Parent=Main
+-- Header avec dégradé
+local Header=Instance.new("Frame") 
+Header.Size=UDim2.new(1,0,0,70) 
+Header.BackgroundTransparency=1 
+Header.Active=true 
+Header.Parent=Main
+
+local HeaderGrad = Instance.new("Frame")
+HeaderGrad.Size = UDim2.new(1,0,0,70)
+HeaderGrad.BackgroundColor3 = THEME.panel
+HeaderGrad.Parent = Header
+Instance.new("UICorner", HeaderGrad).CornerRadius = UDim.new(0,14)
+local hGrad = Instance.new("UIGradient", HeaderGrad)
+hGrad.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, THEME.headerGrad[1]),
+	ColorSequenceKeypoint.new(1, THEME.headerGrad[2])
+}
+
 local Title=Instance.new("TextLabel")
-Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
-Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v6.2 — Hitbox Circle"; Title.Parent=Header
-local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
-local Grad = Instance.new("UIGradient", Flair)
-Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
-Grad.Rotation = 25
+Title.BackgroundTransparency=1 
+Title.Position=UDim2.fromOffset(20,15) 
+Title.Size=UDim2.fromOffset(400,40)
+Title.Font=Enum.Font.GothamBlack 
+Title.TextSize=24 
+Title.TextXAlignment=Enum.TextXAlignment.Left 
+Title.TextColor3=THEME.text
+Title.Text="👑 Baba HUB v6.3"
+Title.Parent=Header
 
-local Hint=Instance.new("TextLabel"); Hint.BackgroundTransparency=1; Hint.AnchorPoint=Vector2.new(1,0); Hint.Position=UDim2.new(1,-46,0,18)
-Hint.Size=UDim2.fromOffset(430,24); Hint.Font=Enum.Font.Gotham; Hint.TextSize=14; Hint.TextXAlignment=Enum.TextXAlignment.Right; Hint.TextColor3=THEME.sub
-Hint.Text='UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P  |  Click TP: Alt'; Hint.Parent=Header
+local SubTitle=Instance.new("TextLabel")
+SubTitle.BackgroundTransparency=1
+SubTitle.Position=UDim2.fromOffset(20,52)
+SubTitle.Size=UDim2.fromOffset(400,16)
+SubTitle.Font=Enum.Font.Gotham
+SubTitle.TextSize=11
+SubTitle.TextXAlignment=Enum.TextXAlignment.Left
+SubTitle.TextColor3=THEME.sub
+SubTitle.Text="Aimbot Hitbox Circulaire • ESP • Anti-AFK"
+SubTitle.Parent=Header
 
-local HideBtn=Instance.new("TextButton"); HideBtn.AnchorPoint=Vector2.new(1,0); HideBtn.Position=UDim2.new(1,-10,0,14); HideBtn.Size=UDim2.fromOffset(30,30)
-HideBtn.Text="✕"; HideBtn.TextSize=18; HideBtn.Font=Enum.Font.GothamBold; HideBtn.TextColor3=THEME.text; HideBtn.AutoButtonColor=true
-HideBtn.BackgroundColor3=THEME.soft; HideBtn.Parent=Header; Instance.new("UICorner",HideBtn).CornerRadius=UDim.new(1,0); Instance.new("UIStroke",HideBtn).Transparency=.35
-local PanicBtn=Instance.new("TextButton"); PanicBtn.AnchorPoint=Vector2.new(1,0); PanicBtn.Position=UDim2.new(1,-50,0,14); PanicBtn.Size=UDim2.fromOffset(30,30)
-PanicBtn.Text="⚡"; PanicBtn.TextSize=16; PanicBtn.Font=Enum.Font.GothamBold; PanicBtn.TextColor3=THEME.text
-PanicBtn.BackgroundColor3=THEME.danger; PanicBtn.Parent=Header; Instance.new("UICorner",PanicBtn).CornerRadius=UDim.new(1,0)
+local Hint=Instance.new("TextLabel") 
+Hint.BackgroundTransparency=1 
+Hint.AnchorPoint=Vector2.new(1,0) 
+Hint.Position=UDim2.new(1,-50,0,20)
+Hint.Size=UDim2.fromOffset(200,20) 
+Hint.Font=Enum.Font.Gotham 
+Hint.TextSize=11 
+Hint.TextXAlignment=Enum.TextXAlignment.Right 
+Hint.TextColor3=THEME.sub
+Hint.Text='Alt+P: Panic  |  "$": UI'
+Hint.Parent=Header
 
-local Sep=Instance.new("Frame"); Sep.BackgroundColor3=Color3.fromRGB(45,45,56); Sep.Size=UDim2.new(1,-24,0,1); Sep.Position=UDim2.fromOffset(12,64); Sep.BorderSizePixel=0; Sep.Parent=Main
+-- Boutons de contrôle améliorés
+local HideBtn=Instance.new("TextButton") 
+HideBtn.AnchorPoint=Vector2.new(1,0) 
+HideBtn.Position=UDim2.new(1,-15,0,18) 
+HideBtn.Size=UDim2.fromOffset(32,32)
+HideBtn.Text="✕" 
+HideBtn.TextSize=20 
+HideBtn.Font=Enum.Font.GothamBold 
+HideBtn.TextColor3=THEME.text 
+HideBtn.AutoButtonColor=true
+HideBtn.BackgroundColor3=THEME.soft 
+HideBtn.Parent=Header 
+Instance.new("UICorner",HideBtn).CornerRadius=UDim.new(1,0) 
+Instance.new("UIStroke",HideBtn).Transparency=.5
 
--- Content
-local Content=Instance.new("ScrollingFrame"); Content.Position=UDim2.fromOffset(12,76); Content.Size=UDim2.new(1,-24,1,-88)
-Content.CanvasSize=UDim2.new(0,0,0,0); Content.ScrollBarThickness=6; Content.BackgroundTransparency=1; Content.ScrollingDirection=Enum.ScrollingDirection.Y; Content.Parent=Main
-local VList=Instance.new("UIListLayout",Content); VList.Padding=UDim.new(0,12); VList.SortOrder=Enum.SortOrder.LayoutOrder
-local function refreshCanvas() Content.CanvasSize=UDim2.new(0,0,0,VList.AbsoluteContentSize.Y+8) end
+local PanicBtn=Instance.new("TextButton") 
+PanicBtn.AnchorPoint=Vector2.new(1,0) 
+PanicBtn.Position=UDim2.new(1,-55,0,18) 
+PanicBtn.Size=UDim2.fromOffset(32,32)
+PanicBtn.Text="⚡" 
+PanicBtn.TextSize=18 
+PanicBtn.Font=Enum.Font.GothamBold 
+PanicBtn.TextColor3=THEME.text
+PanicBtn.BackgroundColor3=THEME.danger 
+PanicBtn.Parent=Header 
+Instance.new("UICorner",PanicBtn).CornerRadius=UDim.new(1,0)
+
+-- Content avec scroll
+local Content=Instance.new("ScrollingFrame") 
+Content.Position=UDim2.fromOffset(15,80) 
+Content.Size=UDim2.new(1,-30,1,-90)
+Content.CanvasSize=UDim2.new(0,0,0,0) 
+Content.ScrollBarThickness=4
+Content.ScrollBarImageColor3 = THEME.acc1
+Content.BackgroundTransparency=1 
+Content.ScrollingDirection=Enum.ScrollingDirection.Y 
+Content.Parent=Main
+
+local VList=Instance.new("UIListLayout",Content) 
+VList.Padding=UDim.new(0,15) 
+VList.SortOrder=Enum.SortOrder.LayoutOrder
+
+local function refreshCanvas() 
+	Content.CanvasSize=UDim2.new(0,0,0,VList.AbsoluteContentSize.Y+20) 
+end
 VList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshCanvas)
 
--- Helpers UI
-local function popIn(card) card.BackgroundTransparency=.12; tween(card,.18,{BackgroundTransparency=0}):Play() end
-local function makeBadge(text)
-	local B=Instance.new("TextLabel"); B.BackgroundTransparency=1; B.Font=Enum.Font.GothamSemibold; B.TextSize=12; B.TextXAlignment=Enum.TextXAlignment.Left
-	B.TextColor3=THEME.sub; B.Text=text; B.Size=UDim2.fromOffset(240,16); return B
+-- Helpers UI améliorés
+local function popIn(card) 
+	card.BackgroundTransparency=.1
+	card.Size = card.Size - UDim2.fromOffset(0, 4)
+	tween(card,.25,{
+		BackgroundTransparency=0,
+		Size = card.Size + UDim2.fromOffset(0, 4)
+	}):Play() 
 end
+
+local function makeBadge(text, color)
+	local B=Instance.new("TextLabel") 
+	B.BackgroundTransparency=1 
+	B.Font=Enum.Font.GothamSemibold 
+	B.TextSize=12 
+	B.TextXAlignment=Enum.TextXAlignment.Left
+	B.TextColor3=color or THEME.sub 
+	B.Text=text 
+	B.Size=UDim2.fromOffset(240,16) 
+	return B
+end
+
 local function makeCard(titleText, subtitleText, height, icon)
-	local Card=Instance.new("Frame"); Card.Size=UDim2.new(1,0,0,height); Card.BackgroundColor3=THEME.panel; Card.BorderSizePixel=0; Card.Active=true; Card.Parent=Content
+	local Card=Instance.new("Frame") 
+	Card.Size=UDim2.new(1,0,0,height) 
+	Card.BackgroundColor3=THEME.panel 
+	Card.BorderSizePixel=0 
+	Card.Active=true 
+	Card.Parent=Content
+	
 	Instance.new("UICorner",Card).CornerRadius=UDim.new(0,12)
-	local s=Instance.new("UIStroke",Card); s.Thickness=1; s.Transparency=.22; s.Color=THEME.stroke
-	local T=Instance.new("TextLabel"); T.BackgroundTransparency=1; T.Font=Enum.Font.GothamSemibold; T.TextSize=16; T.TextXAlignment=Enum.TextXAlignment.Left
-	T.TextColor3=THEME.text; T.Text=(icon and (icon.."  ") or "")..titleText; T.Position=UDim2.fromOffset(14,8); T.Size=UDim2.fromOffset(420,20); T.Parent=Card
-	local ST=Instance.new("TextLabel"); ST.BackgroundTransparency=1; ST.Font=Enum.Font.Gotham; ST.TextSize=13; ST.TextXAlignment=Enum.TextXAlignment.Left
-	ST.TextColor3=THEME.sub; ST.Text=subtitleText or ""; ST.Position=UDim2.fromOffset(14,30); ST.Size=UDim2.fromOffset(520,18); ST.Parent=Card
+	local s=Instance.new("UIStroke",Card) 
+	s.Thickness=1 
+	s.Transparency=.25 
+	s.Color=THEME.stroke
+	
+	-- Icône et titre
+	local T=Instance.new("TextLabel") 
+	T.BackgroundTransparency=1 
+	T.Font=Enum.Font.GothamBold 
+	T.TextSize=15 
+	T.TextXAlignment=Enum.TextXAlignment.Left
+	T.TextColor3=THEME.text 
+	T.Text=(icon and (icon.."  ") or "")..titleText 
+	T.Position=UDim2.fromOffset(15,10) 
+	T.Size=UDim2.fromOffset(450,22) 
+	T.Parent=Card
+	
+	local ST=Instance.new("TextLabel") 
+	ST.BackgroundTransparency=1 
+	ST.Font=Enum.Font.Gotham 
+	ST.TextSize=12 
+	ST.TextXAlignment=Enum.TextXAlignment.Left
+	ST.TextColor3=THEME.sub 
+	ST.Text=subtitleText or "" 
+	ST.Position=UDim2.fromOffset(15,32) 
+	ST.Size=UDim2.fromOffset(540,18) 
+	ST.Parent=Card
+	
 	popIn(Card)
 	return Card
 end
+
 local function makeToggle(parent, defaultOn, xOff)
-	local Btn=Instance.new("TextButton"); Btn.AutoButtonColor=true; Btn.AnchorPoint=Vector2.new(1,0); Btn.Position=UDim2.new(1,-(xOff or 10),0,8)
-	Btn.Size=UDim2.fromOffset(70,30); Btn.BackgroundColor3= defaultOn and THEME.ok or THEME.soft; Btn.Text=""; Btn.Parent=parent
-	Instance.new("UICorner",Btn).CornerRadius=UDim.new(1,0); local s=Instance.new("UIStroke",Btn); s.Thickness=1; s.Transparency=.2; s.Color=THEME.stroke
-	local Knob=Instance.new("Frame"); Knob.Size=UDim2.fromOffset(28,28); Knob.Position= defaultOn and UDim2.fromOffset(40,1) or UDim2.fromOffset(2,1); Knob.BackgroundColor3=THEME.text; Knob.Parent=Btn
+	local Btn=Instance.new("TextButton") 
+	Btn.AutoButtonColor=true 
+	Btn.AnchorPoint=Vector2.new(1,0) 
+	Btn.Position=UDim2.new(1,-(xOff or 15),0,10)
+	Btn.Size=UDim2.fromOffset(75,32) 
+	Btn.BackgroundColor3= defaultOn and THEME.ok or THEME.soft 
+	Btn.Text="" 
+	Btn.Parent=parent
+	
+	Instance.new("UICorner",Btn).CornerRadius=UDim.new(1,0) 
+	local s=Instance.new("UIStroke",Btn) 
+	s.Thickness=1.5 
+	s.Transparency=.2 
+	s.Color=THEME.stroke
+	
+	local Knob=Instance.new("Frame") 
+	Knob.Size=UDim2.fromOffset(28,28) 
+	Knob.Position= defaultOn and UDim2.fromOffset(44,2) or UDim2.fromOffset(3,2) 
+	Knob.BackgroundColor3=THEME.text 
+	Knob.Parent=Btn
 	Instance.new("UICorner",Knob).CornerRadius=UDim.new(1,0)
-	local function setOn(on) tween(Btn,.12,{BackgroundColor3= on and THEME.ok or THEME.soft}):Play(); tween(Knob,.12,{Position= on and UDim2.fromOffset(40,1) or UDim2.fromOffset(2,1)}):Play() end
+	
+	local function setOn(on) 
+		tween(Btn,.15,{BackgroundColor3= on and THEME.ok or THEME.soft}):Play()
+		tween(Knob,.15,{Position= on and UDim2.fromOffset(44,2) or UDim2.fromOffset(3,2)}):Play() 
+	end
+	
 	return Btn,setOn
 end
+
 local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, valueFmt)
-	local Wrap=Instance.new("Frame"); Wrap.BackgroundTransparency=1; Wrap.Position=UDim2.fromOffset(14,yOff or 56); Wrap.Size=UDim2.new(1,-28,0,62); Wrap.Parent=parent
+	local Wrap=Instance.new("Frame") 
+	Wrap.BackgroundTransparency=1 
+	Wrap.Position=UDim2.fromOffset(15,yOff or 60) 
+	Wrap.Size=UDim2.new(1,-30,0,65) 
+	Wrap.Parent=parent
+	
 	local function fmt(v) return valueFmt and valueFmt(v) or tostring(v) end
-	local T=Instance.new("TextLabel"); T.BackgroundTransparency=1; T.Font=Enum.Font.Gotham; T.TextSize=14; T.TextXAlignment=Enum.TextXAlignment.Left; T.TextColor3=THEME.sub
-	T.Text=string.format("%s : %s",title,fmt(defaultV)); T.Position=UDim2.fromOffset(0,0); T.Size=UDim2.fromOffset(360,18); T.Parent=Wrap
-	local Bar=Instance.new("Frame"); Bar.BackgroundColor3=THEME.soft; Bar.BorderSizePixel=0; Bar.Position=UDim2.fromOffset(0,26); Bar.Size=UDim2.new(1,0,0,8); Bar.Parent=Wrap
-	Instance.new("UICorner",Bar).CornerRadius=UDim.new(0,6)
-	local Fill=Instance.new("Frame"); Fill.BackgroundColor3=THEME.acc1; Fill.BorderSizePixel=0; Fill.Size=UDim2.fromOffset(0,8); Fill.Parent=Bar
-	Instance.new("UICorner",Fill).CornerRadius=UDim.new(0,6)
-	local Knob=Instance.new("Frame"); Knob.Size=UDim2.fromOffset(14,14); Knob.Position=UDim2.fromOffset(-7,-3); Knob.BackgroundColor3=THEME.text; Knob.Parent=Fill
+	
+	local T=Instance.new("TextLabel") 
+	T.BackgroundTransparency=1 
+	T.Font=Enum.Font.Gotham 
+	T.TextSize=13 
+	T.TextXAlignment=Enum.TextXAlignment.Left 
+	T.TextColor3=THEME.sub
+	T.Text=string.format("%s : %s",title,fmt(defaultV)) 
+	T.Position=UDim2.fromOffset(0,0) 
+	T.Size=UDim2.fromOffset(360,18) 
+	T.Parent=Wrap
+	
+	local Bar=Instance.new("Frame") 
+	Bar.BackgroundColor3=THEME.soft 
+	Bar.BorderSizePixel=0 
+	Bar.Position=UDim2.fromOffset(0,28) 
+	Bar.Size=UDim2.new(1,0,0,10) 
+	Bar.Parent=Wrap
+	Instance.new("UICorner",Bar).CornerRadius=UDim.new(0,5)
+	
+	local Fill=Instance.new("Frame") 
+	Fill.BackgroundColor3=THEME.acc1 
+	Fill.BorderSizePixel=0 
+	Fill.Size=UDim2.fromOffset(0,10) 
+	Fill.Parent=Bar
+	Instance.new("UICorner",Fill).CornerRadius=UDim.new(0,5)
+	
+	local FillGrad = Instance.new("UIGradient", Fill)
+	FillGrad.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, THEME.acc1),
+		ColorSequenceKeypoint.new(1, THEME.acc2)
+	}
+	
+	local Knob=Instance.new("Frame") 
+	Knob.Size=UDim2.fromOffset(16,16) 
+	Knob.Position=UDim2.fromOffset(-8,-3) 
+	Knob.BackgroundColor3=THEME.text 
+	Knob.Parent=Fill
 	Instance.new("UICorner",Knob).CornerRadius=UDim.new(1,0)
+	
 	local dragging=false
 	local function setFromX(px)
-		local abs=Bar.AbsoluteSize.X; local rel=math.clamp(px/abs,0,1)
+		local abs=Bar.AbsoluteSize.X 
+		local rel=math.clamp(px/abs,0,1)
 		local val=math.floor(minV + (maxV-minV)*rel + .5)
 		local w=math.floor(abs*rel + .5)
-		Fill.Size=UDim2.fromOffset(w,8); Knob.Position=UDim2.fromOffset(w-7,-3)
+		Fill.Size=UDim2.fromOffset(w,10) 
+		Knob.Position=UDim2.fromOffset(w-8,-3)
 		T.Text=string.format("%s : %s",title,fmt(val))
 		if onChanged then onChanged(val) end
 	end
-	RS.Heartbeat:Wait(); local rel=(defaultV-minV)/(maxV-minV); setFromX(Bar.AbsoluteSize.X*rel)
-	Bar.InputBegan:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.Touch then dragging=true; setFromX(io.Position.X-Bar.AbsolutePosition.X) end end)
-	UIS.InputChanged:Connect(function(io) if dragging and (io.UserInputType==Enum.UserInputType.MouseMovement or io.UserInputType==Enum.UserInputType.Touch) then setFromX(io.Position.X-Bar.AbsolutePosition.X) end end)
-	UIS.InputEnded:Connect(function(io) if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType.MouseButton1 then dragging=false end end)
-	return { set=function(v) v=math.clamp(v,minV,maxV); local r=(v-minV)/(maxV-minV); setFromX(Bar.AbsoluteSize.X*r) end }
+	
+	RS.Heartbeat:Wait() 
+	local rel=(defaultV-minV)/(maxV-minV) 
+	setFromX(Bar.AbsoluteSize.X*rel)
+	
+	Bar.InputBegan:Connect(function(io) 
+		if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.Touch then 
+			dragging=true 
+			setFromX(io.Position.X-Bar.AbsolutePosition.X) 
+		end 
+	end)
+	
+	UIS.InputChanged:Connect(function(io) 
+		if dragging and (io.UserInputType==Enum.UserInputType.MouseMovement or io.UserInputType==Enum.UserInputType.Touch) then 
+			setFromX(io.Position.X-Bar.AbsolutePosition.X) 
+		end 
+	end)
+	
+	UIS.InputEnded:Connect(function(io) 
+		if io.UserInputType==Enum.UserInputType.MouseButton1 or io.UserInputType==Enum.UserInputType.MouseButton1 then 
+			dragging=false 
+		end 
+	end)
+	
+	return { set=function(v) v=math.clamp(v,minV,maxV) local r=(v-minV)/(maxV-minV) setFromX(Bar.AbsoluteSize.X*r) end }
 end
 
 --== Features ==--
--- Speed
+
+-- Speed (inchangé)
 local function speed_enable()
 	S.humanoid = getHum()
 	S.normalSpeed = S.humanoid.WalkSpeed
@@ -225,15 +445,17 @@ local function speed_enable()
 		if S.speedOn and S.humanoid.WalkSpeed ~= S.speed then S.humanoid.WalkSpeed = S.speed end
 	end)
 end
+
 local function speed_disable()
 	disconnect(S.speedCon.hb); S.speedCon.hb=nil
 	disconnect(S.speedCon.prop); S.speedCon.prop=nil
 	local h = S.humanoid or (getChar():FindFirstChildOfClass("Humanoid"))
 	if h then h.WalkSpeed = S.normalSpeed or 16 end
 end
+
 LP.CharacterAdded:Connect(function() if S.speedOn then task.wait(.25); speed_enable() end end)
 
--- Fly
+-- Fly (inchangé)
 local function fly_disable()
 	S.flyAlive=false; disconnectAll(S.flyConns)
 	if not S.flyData then return end
@@ -246,6 +468,7 @@ local function fly_disable()
 	if hum then hum.AutoRotate=true; hum.PlatformStand=false; pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end) end
 	S.flyData=nil
 end
+
 local function fly_enable()
 	fly_disable()
 	local char=getChar(); local hrp=char:WaitForChild("HumanoidRootPart"); local hum=char:WaitForChild("Humanoid")
@@ -284,7 +507,7 @@ local function fly_enable()
 	table.insert(S.flyConns, hum.Died:Connect(fly_disable))
 end
 
--- Light
+-- Light (inchangé)
 local LIGHT_PRESET={GlobalShadows=false, FogEnd=100000, Brightness=2, Ambient=Color3.fromRGB(150,150,150)}
 local function light_enable()
 	if not S.lightBackup then S.lightBackup={GlobalShadows=Lighting.GlobalShadows, FogEnd=Lighting.FogEnd, Brightness=Lighting.Brightness, Ambient=Lighting.Ambient} end
@@ -292,7 +515,7 @@ local function light_enable()
 end
 local function light_disable() if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end end
 
---== ESP ==--
+-- ESP (inchangé)
 local ROLE_COLORS = { Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60), Innocent=Color3.fromRGB(64,128,255), Sheriff=Color3.fromRGB(255,220,0), Detective=Color3.fromRGB(255,220,0) }
 local DEFAULT_COLOR = Color3.fromRGB(200,200,200)
 local ESP_REG = {}
@@ -366,15 +589,7 @@ local function rebuildPlayersCache()
 end
 rebuildPlayersCache()
 Players.PlayerAdded:Connect(rebuildPlayersCache)
-Players.PlayerRemoving:Connect(function(p)
-	rebuildPlayersCache()
-	if S.aimEnhancedHitboxParts[p] then
-		for _, part in ipairs(S.aimEnhancedHitboxParts[p]) do
-			if part and part.Parent then part:Destroy() end
-		end
-		S.aimEnhancedHitboxParts[p] = nil
-	end
-end)
+Players.PlayerRemoving:Connect(rebuildPlayersCache)
 
 local function esp_enable()
 	if S.espConn then return end
@@ -382,18 +597,128 @@ local function esp_enable()
 	local function targetHz() local n=math.max(1,#S._playersCache); if n>20 then return 8 elseif n>10 then return 12 elseif n>5 then return 16 else return S.espHz end end
 	local acc, currHz = 0, targetHz()
 	S.espConn = RS.Heartbeat:Connect(function(dt) acc += dt; if math.random()<0.1 then currHz = targetHz() end; local step = 1/math.max(1,currHz); if acc >= step then esp_update(); acc = 0 end end)
+	Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end) if p.Character then buildESPFor(p,p.Character) end end)
 end
 local function esp_disable() disconnect(S.espConn); S.espConn=nil; for _,reg in pairs(ESP_REG) do if reg.bb then reg.bb.Enabled=false end; if reg.hl then reg.hl.Enabled=false end end end
 
---== Hitbox (originale, laissée intacte) ==--
-local function rememberHRP(hrp) if not hrp or S.hitboxOrig[hrp] then return end; S.hitboxOrig[hrp] = { Size=hrp.Size, Transparency=hrp.Transparency, Material=hrp.Material, CanCollide=hrp.CanCollide, BrickColor=hrp.BrickColor } end
-local function applyHitboxTo(hrp) if not hrp then return end; rememberHRP(hrp); hrp.Size=Vector3.new(S.hitboxSize,S.hitboxSize,S.hitboxSize); hrp.Transparency=.7; hrp.BrickColor=BrickColor.new("Really red"); hrp.Material=Enum.Material.Neon; hrp.CanCollide=false end
-local function restoreAllHitbox() for hrp,orig in pairs(S.hitboxOrig) do if hrp and hrp.Parent and orig then pcall(function() hrp.Size=orig.Size; hrp.Transparency=orig.Transparency; hrp.Material=orig.Material; hrp.CanCollide=orig.CanCollide; hrp.BrickColor=orig.BrickColor end) end end; S.hitboxOrig={} end
-local function hitbox_tick() for _,pl in ipairs(S._playersCache) do local c=pl.Character; if c then local hrp=c:FindFirstChild("HumanoidRootPart"); if hrp then pcall(applyHitboxTo,hrp) end end end end
-local function hitbox_enable() if S.hitboxConn then return end; hitbox_tick(); S.hitboxConn = RS.Heartbeat:Connect(function(dt) local acc=(S.__hbacc or 0)+dt; if acc>=0.25 then hitbox_tick(); acc=0 end; S.__hbacc=acc end) end
-local function hitbox_disable() disconnect(S.hitboxConn); S.hitboxConn=nil; restoreAllHitbox() end
+--== Hitbox Circulaire AMÉLIORÉE ==--
+local function createCircleHitbox(target)
+	-- Détruit le cercle existant
+	if S.hitboxCircle then
+		S.hitboxCircle:Destroy()
+		S.hitboxCircle = nil
+	end
+	
+	if not target then return end
+	
+	local hrp = target:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	
+	-- Crée un cercle visuel autour du joueur
+	local circle = Instance.new("Part")
+	circle.Name = "HitboxCircle"
+	circle.Anchored = true
+	circle.CanCollide = false
+	circle.Size = Vector3.new(S.hitboxRadius, 0.2, S.hitboxRadius)
+	circle.Material = Enum.Material.Neon
+	circle.BrickColor = BrickColor.new("Really red")
+	circle.Transparency = 0.5
+	circle.Parent = workspace
+	
+	-- Crée un mesh cylindrique pour le cercle
+	local mesh = Instance.new("CylinderMesh")
+	mesh.Scale = Vector3.new(1, 0.1, 1)
+	mesh.Parent = circle
+	
+	-- Attache le cercle au HRP
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = circle
+	weld.Part1 = hrp
+	weld.Parent = circle
+	
+	S.hitboxCircle = circle
+	
+	-- Met à jour la taille du cercle
+	local function updateCircle()
+		if circle and circle.Parent then
+			local newSize = Vector3.new(S.hitboxRadius, 0.2, S.hitboxRadius)
+			circle.Size = newSize
+		end
+	end
+	
+	-- Connecte la mise à jour
+	table.insert(S.hitboxParts, target.ChildAdded:Connect(function(child)
+		if child.Name == "HumanoidRootPart" then
+			updateCircle()
+		end
+	end))
+end
 
---== NoClip ==--
+local function hitbox_tick()
+	if not S.hitboxOn then return end
+	
+	for _,pl in ipairs(S._playersCache) do 
+		local c=pl.Character 
+		if c then 
+			local hrp=c:FindFirstChild("HumanoidRootPart") 
+			if hrp then
+				-- Agrandit le HRP
+				hrp.Size = Vector3.new(S.hitboxRadius, S.hitboxRadius, S.hitboxRadius)
+				hrp.Transparency = 0.7
+				hrp.BrickColor = BrickColor.new("Really red")
+				hrp.Material = Enum.Material.Neon
+				hrp.CanCollide = false
+			end 
+		end 
+	end
+end
+
+local function hitbox_enable()
+	if S.hitboxConn then return end
+	
+	-- Crée un cercle pour la cible de l'aimbot si elle existe
+	if S.aimTargetUserId then
+		local target = Players:GetPlayerByUserId(S.aimTargetUserId)
+		if target and target.Character then
+			createCircleHitbox(target.Character)
+		end
+	end
+	
+	hitbox_tick()
+	S.hitboxConn = RS.Heartbeat:Connect(function(dt) 
+		local acc=(S.__hbacc or 0)+dt
+		if acc>=0.25 then 
+			hitbox_tick() 
+			acc=0 
+		end 
+		S.__hbacc=acc 
+	end)
+end
+
+local function hitbox_disable()
+	disconnect(S.hitboxConn)
+	S.hitboxConn=nil
+	
+	-- Détruit le cercle
+	if S.hitboxCircle then
+		S.hitboxCircle:Destroy()
+		S.hitboxCircle = nil
+	end
+	
+	-- Restaure les HRP
+	for _,pl in ipairs(S._playersCache) do 
+		local c=pl.Character 
+		if c then 
+			local hrp=c:FindFirstChild("HumanoidRootPart") 
+			if hrp then
+				hrp.Size = Vector3.new(2, 2, 1)
+				hrp.Transparency = 1
+			end 
+		end 
+	end
+end
+
+--== NoClip (inchangé) ==--
 local function noclip_cachePart(inst) if inst:IsA("BasePart") and S.noclipOriginal[inst]==nil then S.noclipOriginal[inst]=inst.CanCollide end end
 local function noclip_cacheChar(char) for _,d in ipairs(char:GetDescendants()) do noclip_cachePart(d) end; disconnect(S.noclipDesc); S.noclipDesc=char.DescendantAdded:Connect(noclip_cachePart) end
 local function noclip_apply(char) for part,_ in pairs(S.noclipOriginal) do if part.Parent and part:IsDescendantOf(char) then part.CanCollide=false end end end
@@ -401,7 +726,7 @@ local function noclip_enable() local char=getChar(); S.noclipOriginal={}; noclip
 local function noclip_disable() disconnect(S.noclipStep); S.noclipStep=nil; disconnect(S.noclipDesc); S.noclipDesc=nil; for part,can in pairs(S.noclipOriginal) do if part and part.Parent then part.CanCollide=can end end; S.noclipOriginal={} end
 LP.CharacterAdded:Connect(function(c) if S.noclipOn then noclip_enable() end end)
 
---== Infinite Jump ==--
+--== Infinite Jump (inchangé) ==--
 local function ij_bind(char)
 	local hum=char:WaitForChild("Humanoid"); local root=char:WaitForChild("HumanoidRootPart")
 	hum.UseJumpPower=true; disconnect(S.ijConn)
@@ -416,7 +741,7 @@ end
 if LP.Character then ij_bind(LP.Character) end
 LP.CharacterAdded:Connect(function(c) if S.ijOn then ij_bind(c) end end)
 
---== Aimbot Hard-Lock (Head) ==--
+--== Aimbot Hard-Lock AMÉLIORÉ ==--
 local function sameTeam(a,b) return (a and b and a.Team and b.Team and a.Team==b.Team) end
 local function getTargetHead()
 	if not S.aimTargetUserId then return nil end
@@ -444,17 +769,89 @@ local function cam_unlock()
 	S.__prevCamType, S.__prevCamSubject = nil, nil
 	S.__camLocked = false
 end
-local function aimbot_disable() disconnect(S.aimConn); S.aimConn=nil; cam_unlock() end
+
+local function createAimCircle()
+	if S.aimCircle then
+		S.aimCircle:Destroy()
+		S.aimCircle = nil
+	end
+	
+	if not S.aimShowCircle then return end
+	
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	
+	-- Crée un cercle visuel sur l'écran
+	local circle = Instance.new("ImageLabel")
+	circle.Name = "AimCircle"
+	circle.AnchorPoint = Vector2.new(0.5, 0.5)
+	circle.Size = UDim2.new(0, S.aimCircleRadius * 50, 0, S.aimCircleRadius * 50)
+	circle.Position = UDim2.new(0.5, 0, 0.5, 0)
+	circle.BackgroundTransparency = 1
+	circle.Image = "rbxassetid://3570695787" -- Cercle
+	circle.ImageColor3 = Color3.fromRGB(255, 50, 50)
+	circle.ImageTransparency = 0.3
+	circle.Visible = S.aimShowCircle
+	circle.Parent = UI
+	
+	S.aimCircle = circle
+	
+	-- Anime le cercle
+	local function animateCircle()
+		while S.aimCircle and S.aimCircle.Parent do
+			local newSize = UDim2.new(0, S.aimCircleRadius * 50, 0, S.aimCircleRadius * 50)
+			tween(S.aimCircle, 0.3, {Size = newSize})
+			task.wait(0.3)
+			
+			if S.aimCircle then
+				tween(S.aimCircle, 0.3, {Size = newSize + UDim2.new(0, 5, 0, 5)})
+				task.wait(0.3)
+			end
+		end
+	end
+	
+	task.spawn(animateCircle)
+end
+
+local function aimbot_disable() 
+	disconnect(S.aimConn); S.aimConn=nil; 
+	cam_unlock()
+	if S.aimCircle then
+		S.aimCircle:Destroy()
+		S.aimCircle = nil
+	end
+end
+
 local function aimbot_enable()
 	if S.aimConn then return end
+	
+	createAimCircle()
+	
 	S.aimConn = RS.RenderStepped:Connect(function(dt)
 		local cam = workspace.CurrentCamera; if not cam then return end
-		if not aim_isActive() then cam_unlock(); return end
+		if not aim_isActive() then 
+			if S.aimCircle then S.aimCircle.Visible = false end
+			cam_unlock(); return 
+		end
+		
+		if S.aimCircle then S.aimCircle.Visible = true end
 		cam_lock()
+
 		local head = getTargetHead(); if not head or not head.Parent then return end
 		local camPos = cam.CFrame.Position
 		local targetPos = head.Position + S.aimHeadOffset
 		if (camPos - targetPos).Magnitude > S.aimMaxDist then return end
+
+		-- Applique un offset aléatoire basé sur le rayon du cercle
+		if S.aimCircleRadius > 0 then
+			local randomOffset = Vector3.new(
+				math.random() * S.aimCircleRadius - S.aimCircleRadius/2,
+				math.random() * S.aimCircleRadius - S.aimCircleRadius/2,
+				math.random() * S.aimCircleRadius - S.aimCircleRadius/2
+			)
+			targetPos = targetPos + randomOffset
+		end
+
 		if S.aimPredict and S.aimPredict > 0 then
 			local vel = getVel(head)
 			if vel.Magnitude < 0.1 then
@@ -464,6 +861,7 @@ local function aimbot_enable()
 			end
 			targetPos = targetPos + vel * (math.clamp(S.aimPredict,0,1) * dt * 60/60)
 		end
+
 		local want = CFrame.lookAt(camPos, targetPos)
 		local s = math.clamp(S.aimSmooth/100, 0, 1)
 		if s <= 0 then cam.CFrame = want
@@ -474,140 +872,7 @@ local function aimbot_enable()
 	end)
 end
 
---============================================================================--
--- AIMBOT AMÉLIORÉ - HITBOX PARTS INVISIBLES
--- Crée des parts invisibles autour des joueurs qui interceptent les balles
--- PAS de carrés rouges, PAS de focus auto
---============================================================================--
-local function aimEnhanced_createPartsForPlayer(player)
-	if player == LP then return end
-	local char = player.Character
-	if not char then return end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hrp then return end
-	
-	-- Supprime les anciennes parts
-	if S.aimEnhancedHitboxParts[player] then
-		for _, part in ipairs(S.aimEnhancedHitboxParts[player]) do
-			if part and part.Parent then part:Destroy() end
-		end
-	end
-	
-	local size = S.aimEnhancedSize
-	local parts = {}
-	
-	-- Crée une grande boîte invisible autour du HRP
-	local hitbox = Instance.new("Part")
-	hitbox.Name = "AimHitbox"
-	hitbox.Size = Vector3.new(size, size, size)
-	hitbox.CanCollide = true -- IMPORTANT: doit pouvoir être touché par les balles
-	hitbox.Transparency = 1 -- COMPLÈTEMENT INVISIBLE
-	hitbox.Anchored = false
-	hitbox.Massless = true
-	hitbox.Parent = char
-	
-	-- Attache au HRP
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = hitbox
-	weld.Part1 = hrp
-	weld.Parent = hitbox
-	
-	table.insert(parts, hitbox)
-	
-	S.aimEnhancedHitboxParts[player] = parts
-end
-
-local function aimEnhanced_removeAllParts()
-	for player, parts in pairs(S.aimEnhancedHitboxParts) do
-		for _, part in ipairs(parts) do
-			if part and part.Parent then part:Destroy() end
-		end
-	end
-	S.aimEnhancedHitboxParts = {}
-end
-
-local function aimEnhanced_createCircle()
-	if S.aimEnhancedCircleGui then
-		S.aimEnhancedCircleGui:Destroy()
-		S.aimEnhancedCircleGui = nil
-	end
-	if not S.aimEnhancedShowCircle then return end
-	
-	local circleGui = Instance.new("ScreenGui")
-	circleGui.Name = "AimEnhancedCircle"
-	circleGui.ResetOnSpawn = false
-	circleGui.IgnoreGuiInset = true
-	circleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	pcall(function() if syn and syn.protect_gui then syn.protect_gui(circleGui) end end)
-	circleGui.Parent = game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
-	
-	local circle = Instance.new("ImageLabel")
-	circle.Name = "Circle"
-	circle.AnchorPoint = Vector2.new(0.5, 0.5)
-	circle.Position = UDim2.fromScale(0.5, 0.5)
-	circle.Size = UDim2.fromOffset(60, 60)
-	circle.BackgroundTransparency = 1
-	circle.Image = "rbxassetid://3570695787"
-	circle.ImageColor3 = Color3.fromRGB(255, 80, 80)
-	circle.ImageTransparency = 0.75
-	circle.ZIndex = 1
-	circle.Parent = circleGui
-	
-	S.aimEnhancedCircleGui = circleGui
-end
-
-local function aimEnhanced_enable()
-	if S.aimEnhancedConn then return end
-	
-	aimEnhanced_createCircle()
-	
-	for _, pl in ipairs(S._playersCache) do
-		aimEnhanced_createPartsForPlayer(pl)
-	end
-	
-	S.aimEnhancedConn = RS.Heartbeat:Connect(function()
-		if not S.aimEnhancedOn then return end
-		for _, pl in ipairs(S._playersCache) do
-			if pl ~= LP then
-				-- Vérifie si les parts existent encore
-				local existing = S.aimEnhancedHitboxParts[pl]
-				if not existing or #existing == 0 then
-					aimEnhanced_createPartsForPlayer(pl)
-				else
-					-- Vérifie que la première part existe encore
-					if not existing[1] or not existing[1].Parent then
-						aimEnhanced_createPartsForPlayer(pl)
-					end
-				end
-			end
-		end
-	end)
-	
-	for _, pl in ipairs(S._playersCache) do
-		if pl ~= LP then
-			pl.CharacterAdded:Connect(function(char)
-				if S.aimEnhancedOn then
-					task.wait(0.3)
-					aimEnhanced_createPartsForPlayer(pl)
-				end
-			end)
-		end
-	end
-end
-
-local function aimEnhanced_disable()
-	disconnect(S.aimEnhancedConn)
-	S.aimEnhancedConn = nil
-	aimEnhanced_removeAllParts()
-	if S.aimEnhancedCircleGui then
-		S.aimEnhancedCircleGui:Destroy()
-		S.aimEnhancedCircleGui = nil
-	end
-end
-
---============================================================================--
--- Anti-AFK
---============================================================================--
+--== Anti-AFK (inchangé) ==--
 local function disableIdledConnections()
 	pcall(function()
 		local gc = getconnections or get_signal_cons
@@ -621,14 +886,17 @@ local function disableIdledConnections()
 		end
 	end)
 end
+
 local function antiAfk_disable()
 	S.afkAlive = false
 	disconnect(S.afkConn); S.afkConn=nil
 	S.afkThread = nil
 end
+
 local function antiAfk_enable()
 	antiAfk_disable()
 	disableIdledConnections()
+
 	S.afkConn = LP.Idled:Connect(function()
 		local cam = workspace.CurrentCamera
 		pcall(function()
@@ -637,6 +905,7 @@ local function antiAfk_enable()
 			VU:Button2Up(Vector2.new(0,0),  cam and cam.CFrame or CFrame.new())
 		end)
 	end)
+
 	S.afkAlive = true
 	S.afkThread = task.spawn(function()
 		while S.afkAlive do
@@ -644,9 +913,11 @@ local function antiAfk_enable()
 			local base   = math.clamp(S.afkInterval or 240, 30, 1200)
 			local waitFor = base + (jitter>0 and math.random(-jitter, jitter) or 0)
 			waitFor = math.max(5, waitFor)
+
 			local elapsed = 0
 			while S.afkAlive and elapsed < waitFor do task.wait(1); elapsed += 1 end
 			if not S.afkAlive then break end
+
 			local cam = workspace.CurrentCamera
 			pcall(function()
 				if cam then cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(math.random(-3,3)), 0) end
@@ -656,7 +927,7 @@ local function antiAfk_enable()
 	end)
 end
 
---== Click Teleport (ALT) ==--
+--== Click Teleport (ALT) (inchangé) ==--
 local function ct_findHit(maxDist)
 	local cam = workspace.CurrentCamera; if not cam then return nil end
 	local origin, dir
@@ -676,14 +947,17 @@ local function ct_findHit(maxDist)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { getChar() }
 	params.IgnoreWater = false
+
 	local dist = math.clamp(S.ctMaxDist or 2048, 10, 100000)
 	local rc = workspace:Raycast(origin, dir * dist, params)
 	local pos = rc and rc.Position or (origin + dir * dist)
+
 	local from = pos + Vector3.new(0,500,0)
 	local down = workspace:Raycast(from, Vector3.new(0,-2000,0), params)
 	if down then pos = Vector3.new(pos.X, down.Position.Y, pos.Z) end
 	return pos
 end
+
 local function clicktp_perform()
 	local char=LP.Character; if not char then return end
 	local hrp=char:FindFirstChild("HumanoidRootPart"); local hum=char:FindFirstChildOfClass("Humanoid")
@@ -699,7 +973,7 @@ end
 
 -- Speed
 do
-	local Card=makeCard("⚡ Vitesse","Vitesse constante et stable (pas de Shift).",132)
+	local Card=makeCard("⚡ Vitesse","Vitesse constante et stable (pas de Shift).",135)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Vitesse",S.minSpeed,S.maxSpeed,S.speed,56,function(v) S.speed=v end)
 	Toggle.MouseButton1Click:Connect(function() S.speedOn=not S.speedOn; setT(S.speedOn); if S.speedOn then speed_enable() else speed_disable() end end)
@@ -707,96 +981,80 @@ end
 
 -- Fly
 do
-	local Card=makeCard("🕊️ Vol","WASD/ZQSD + Espace/CTRL (vertical). Sortie propre.",160)
+	local Card=makeCard("🕊️ Vol","WASD/ZQSD + Espace/CTRL (vertical). Sortie propre.",170)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Vitesse horizontale",20,160,S.flySpeed,56,function(v) S.flySpeed=v end)
-	makeSlider(Card,"Vitesse verticale",10,120,S.flyVertical,118,function(v) S.flyVertical=v end)
+	makeSlider(Card,"Vitesse verticale",10,120,S.flyVertical,120,function(v) S.flyVertical=v end)
 	Toggle.MouseButton1Click:Connect(function() S.flyOn=not S.flyOn; setT(S.flyOn); if S.flyOn then fly_enable() else fly_disable() end end)
 end
 
 -- Light
-do local Card=makeCard("💡 Lumière","Désactive ombres, enlève brouillard, +luminosité.",100); local Toggle,setT=makeToggle(Card,false)
+do 
+	local Card=makeCard("💡 Lumière","Désactive ombres, enlève brouillard, +luminosité.",105)
+	local Toggle,setT=makeToggle(Card,false)
 	Toggle.MouseButton1Click:Connect(function() S.lightOn=not S.lightOn; setT(S.lightOn); if S.lightOn then light_enable() else light_disable() end end)
 end
 
 -- ESP
 do
-	local Card=makeCard("🧭 ESP Joueurs","Highlight + pseudo + distance. Distance max réglable. Cadence adaptative.",230)
+	local Card=makeCard("🧭 ESP Joueurs","Highlight + pseudo + distance. Distance max réglable. Cadence adaptative.",240)
 	local Toggle,setT=makeToggle(Card,false)
-	local Row1=Instance.new("Frame"); Row1.BackgroundTransparency=1; Row1.Position=UDim2.fromOffset(14,56); Row1.Size=UDim2.new(1,-28,0,28); Row1.Parent=Card
-	local L1=makeBadge("Afficher @username"); L1.Position=UDim2.fromOffset(0,6); L1.Parent=Row1
-	local T1,setT1=makeToggle(Row1,S.espShowUsername); T1.Position=UDim2.new(1,-58,0,2); T1.Size=UDim2.fromOffset(58,24)
+	local Row1=Instance.new("Frame"); Row1.BackgroundTransparency=1; Row1.Position=UDim2.fromOffset(15,56); Row1.Size=UDim2.new(1,-30,0,28); Row1.Parent=Card
+	local L1=makeBadge("Afficher @username", THEME.sub); L1.Position=UDim2.fromOffset(0,6); L1.Parent=Row1
+	local T1,setT1=makeToggle(Row1,S.espShowUsername); T1.Position=UDim2.new(1,-75,0,2)
 	T1.MouseButton1Click:Connect(function() S.espShowUsername=not S.espShowUsername; setT1(S.espShowUsername) end)
-	local Row2=Instance.new("Frame"); Row2.BackgroundTransparency=1; Row2.Position=UDim2.fromOffset(14,88); Row2.Size=UDim2.new(1,-28,0,28); Row2.Parent=Card
-	local b1=makeBadge("Aura ON"); b1.Position=UDim2.fromOffset(0,6); b1.Parent=Row2
-	local b2=makeBadge("Labels ON"); b2.Position=UDim2.fromOffset(150,6); b2.Parent=Row2
-	local tAura,setA=makeToggle(Row2,S.espShowAura); tAura.Position=UDim2.fromOffset(90,2); tAura.Size=UDim2.fromOffset(58,24)
-	local tLab,setL =makeToggle(Row2,S.espShowLabels); tLab.Position =UDim2.fromOffset(240,2); tLab.Size=UDim2.fromOffset(58,24)
+	
+	local Row2=Instance.new("Frame"); Row2.BackgroundTransparency=1; Row2.Position=UDim2.fromOffset(15,88); Row2.Size=UDim2.new(1,-30,0,28); Row2.Parent=Card
+	local b1=makeBadge("Aura ON", THEME.ok); b1.Position=UDim2.fromOffset(0,6); b1.Parent=Row2
+	local b2=makeBadge("Labels ON", THEME.acc1); b2.Position=UDim2.fromOffset(180,6); b2.Parent=Row2
+	local tAura,setA=makeToggle(Row2,S.espShowAura); tAura.Position=UDim2.fromOffset(100,2)
+	local tLab,setL =makeToggle(Row2,S.espShowLabels); tLab.Position =UDim2.fromOffset(280,2)
 	tAura.MouseButton1Click:Connect(function() S.espShowAura=not S.espShowAura; setA(S.espShowAura) end)
 	tLab.MouseButton1Click:Connect(function() S.espShowLabels=not S.espShowLabels; setL(S.espShowLabels) end)
+	
 	makeSlider(Card,"Distance max",50,5000,S.espMaxDist,130,function(v) S.espMaxDist=v end,function(v) return v.." studs" end)
-	makeSlider(Card,"Fréquence cible (Hz)",8,60,S.espHz,192,function(v) S.espHz=v end)
+	makeSlider(Card,"Fréquence cible (Hz)",8,60,S.espHz,195,function(v) S.espHz=v end)
+	
 	Toggle.MouseButton1Click:Connect(function() S.espOn=not S.espOn; setT(S.espOn); if S.espOn then esp_enable() else esp_disable() end end)
 end
 
--- Hitbox
+-- Hitbox Circulaire AMÉLIORÉE
 do
-	local Card=makeCard("🎯 Hitbox (HRP)","Agrandit le HRP des autres (client). Rafraîchi 0.25s.",148)
+	local Card=makeCard("🎯 Hitbox Circulaire","Agrandit le HRP des autres + cercle visuel sur la cible Aimbot. Rafraîchi 0.25s.",160)
 	local Toggle,setT=makeToggle(Card,false)
-	makeSlider(Card,"Taille",2,30,S.hitboxSize,56,function(v) S.hitboxSize=v end)
-	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
-end
-
--- Aimbot Amélioré (Hitbox Parts INVISIBLES)
-do
-	local Card=makeCard("🔥 Aimbot Amélioré","Hitbox INVISIBLE autour des joueurs. Tire à côté = ça touche ! PAS de focus, PAS de carrés rouges.",160)
-	local Toggle,setT=makeToggle(Card,false)
-	
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
-	local lbl=makeBadge("Cercle visuel discret"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
-	local circleT,setCircle=makeToggle(row,S.aimEnhancedShowCircle); circleT.Position=UDim2.new(1,-58,0,2); circleT.Size=UDim2.fromOffset(58,24)
-	circleT.MouseButton1Click:Connect(function() 
-		S.aimEnhancedShowCircle = not S.aimEnhancedShowCircle
-		setCircle(S.aimEnhancedShowCircle)
-		if S.aimEnhancedOn then
-			if S.aimEnhancedCircleGui then S.aimEnhancedCircleGui:Destroy(); S.aimEnhancedCircleGui = nil end
-			if S.aimEnhancedShowCircle then aimEnhanced_createCircle() end
+	makeSlider(Card,"Rayon du cercle",2,30,S.hitboxRadius,56,function(v) 
+		S.hitboxRadius=v
+		-- Met à jour le cercle si existant
+		if S.hitboxCircle and S.hitboxCircle.Parent then
+			S.hitboxCircle.Size = Vector3.new(v, 0.2, v)
 		end
 	end)
 	
-	makeSlider(Card,"Taille hitbox",5,50,S.aimEnhancedSize,96,function(v) 
-		S.aimEnhancedSize=v
-		-- Met à jour les parts existantes
-		for player, parts in pairs(S.aimEnhancedHitboxParts) do
-			for _, part in ipairs(parts) do
-				if part and part.Parent then
-					part.Size = Vector3.new(v, v, v)
-				end
-			end
-		end
-	end,function(v) return v.." studs" end)
-	
 	Toggle.MouseButton1Click:Connect(function() 
-		S.aimEnhancedOn = not S.aimEnhancedOn
-		setT(S.aimEnhancedOn)
-		if S.aimEnhancedOn then aimEnhanced_enable() else aimEnhanced_disable() end
+		S.hitboxOn = not S.hitboxOn
+		setT(S.hitboxOn)
+		if S.hitboxOn then 
+			hitbox_enable() 
+		else 
+			hitbox_disable() 
+		end
 	end)
 end
 
 -- NoClip
 do
-	local Card=makeCard("🧱 NoClip","Traverse les objets. Mode maintien optionnel (touche X).",148)
+	local Card=makeCard("🧱 NoClip","Traverse les objets. Mode maintien optionnel (touche X).",150)
 	local Toggle,setT=makeToggle(Card,false)
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
-	local lbl=makeBadge("Maintenir pour activer (X)"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
-	local holdT,setHold=makeToggle(row,S.noclipHold); holdT.Position=UDim2.new(1,-58,0,2); holdT.Size=UDim2.fromOffset(58,24)
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(15,56); row.Size=UDim2.new(1,-30,0,28); row.Parent=Card
+	local lbl=makeBadge("Maintenir pour activer (X)", THEME.warning); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
+	local holdT,setHold=makeToggle(row,S.noclipHold); holdT.Position=UDim2.new(1,-75,0,2)
 	holdT.MouseButton1Click:Connect(function() S.noclipHold = not S.noclipHold; setHold(S.noclipHold) end)
 	Toggle.MouseButton1Click:Connect(function() S.noclipOn=not S.noclipOn; setT(S.noclipOn); if S.noclipOn then noclip_enable() else noclip_disable() end end)
 end
 
 -- Infinite Jump
 do
-	local Card=makeCard("🦘 Saut Infini","Jump sans limite. Boost réglable.",150)
+	local Card=makeCard("🦘 Saut Infini","Jump sans limite. Boost réglable.",155)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Boost Y",20,120,S.ijBoost,56,function(v) S.ijBoost=v end)
 	Toggle.MouseButton1Click:Connect(function() S.ijOn=not S.ijOn; setT(S.ijOn); if S.ijOn then if LP.Character then ij_bind(LP.Character) end else disconnect(S.ijConn); S.ijConn=nil end end)
@@ -805,23 +1063,23 @@ end
 -- TP + Follow
 local function listOthers() local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end; table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end); return arr end
 do
-	local Card=makeCard("🧭 Téléportation","Choisis un joueur puis TP. Mode Follow (suivi continu).",230)
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,58); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
+	local Card=makeCard("🧭 Téléportation","Choisis un joueur puis TP. Mode Follow (suivi continu).",240)
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(15,60); row.Size=UDim2.new(1,-30,0,36); row.Parent=Card
 	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
-	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=THEME.text
+	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="🔄 Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=13; refreshBtn.TextColor3=THEME.text
 	refreshBtn.BackgroundColor3=THEME.acc1; refreshBtn.AutoButtonColor=true; refreshBtn.Parent=row; Instance.new("UICorner",refreshBtn).CornerRadius=UDim.new(0,8)
-	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir un joueur  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
+	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir un joueur  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=13
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
-	local followToggle, setFollow = makeToggle(row, false); followToggle.Position=UDim2.new(1,-58,0,2); followToggle.Size=UDim2.fromOffset(58,24)
-	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-28,0,120); listHolder.Position=UDim2.fromOffset(14,100); listHolder.BackgroundColor3=Color3.fromRGB(40,42,56)
+	local followToggle, setFollow = makeToggle(row, false); followToggle.Position=UDim2.new(1,-75,0,2)
+	local listHolder=Instance.new("ScrollingFrame"); listHolder.Size=UDim2.new(1,-30,0,120); listHolder.Position=UDim2.fromOffset(15,100); listHolder.BackgroundColor3=Color3.fromRGB(35,38,50)
 	listHolder.BorderSizePixel=0; listHolder.ScrollBarThickness=6; listHolder.CanvasSize=UDim2.new(0,0,0,0); listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
 	local listLayout=Instance.new("UIListLayout",listHolder); listLayout.Padding=UDim.new(0,6)
 	local listPad=Instance.new("UIPadding",listHolder); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
 	local function resizeCanvas() local total=0; for _,ch in ipairs(listHolder:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listHolder.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
 	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun autre joueur."
-	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listHolder
-	local tpBtn=Instance.new("TextButton"); tpBtn.Size=UDim2.new(1,-28,0,36); tpBtn.Position=UDim2.fromOffset(14,230-36); tpBtn.Text="Se TP → (choisis un joueur)"
-	tpBtn.Font=Enum.Font.GothamSemibold; tpBtn.TextSize=15; tpBtn.TextColor3=THEME.text; tpBtn.BackgroundColor3=THEME.soft; tpBtn.AutoButtonColor=true; tpBtn.Parent=Card
+	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=13; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listHolder
+	local tpBtn=Instance.new("TextButton"); tpBtn.Size=UDim2.new(1,-30,0,36); tpBtn.Position=UDim2.fromOffset(15,230-36); tpBtn.Text="Se TP → (choisis un joueur)"
+	tpBtn.Font=Enum.Font.GothamSemibold; tpBtn.TextSize=14; tpBtn.TextColor3=THEME.text; tpBtn.BackgroundColor3=THEME.soft; tpBtn.AutoButtonColor=true; tpBtn.Parent=Card
 	Instance.new("UICorner",tpBtn).CornerRadius=UDim.new(0,10)
 	local function setTPEnabled(on) tpBtn.Active=on; tpBtn.AutoButtonColor=on; tpBtn.BackgroundColor3= on and THEME.acc1 or THEME.soft end
 	setTPEnabled(false)
@@ -833,7 +1091,7 @@ do
 			for _,p in ipairs(others) do
 				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
 				b.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
-				b.Font=Enum.Font.Gotham; b.TextSize=14; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listHolder
+				b.Font=Enum.Font.Gotham; b.TextSize=13; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listHolder
 				Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
 				b.MouseButton1Click:Connect(function()
 					S.tpSelectedUserId=p.UserId; S.tpSelectedLabel=(p.DisplayName~="" and p.DisplayName) or p.Name
@@ -867,52 +1125,83 @@ do
 	followToggle.MouseButton1Click:Connect(function() S.tpFollow = not S.tpFollow; setFollow(S.tpFollow) end)
 end
 
--- AIMBOT (+Recherche)
+-- AIMBOT amélioré avec cercle de visée
 local function listOthersAim()
 	local arr={}; for _,p in ipairs(Players:GetPlayers()) do if p~=LP then table.insert(arr,p) end end
 	table.sort(arr,function(a,b) local ad=(a.DisplayName~="" and a.DisplayName) or a.Name; local bd=(b.DisplayName~="" and b.DisplayName) or b.Name; return string.lower(ad) < string.lower(bd) end)
 	return arr
 end
 do
-	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste + recherche → sélection → la caméra colle la tête (snap).",430)
+	local Card=makeCard("🎯 Aimbot Hard-Lock + Cercle","Liste + recherche → sélection → caméra colle la tête avec cercle de hitbox visuel.",520)
 	local Toggle,setT=makeToggle(Card,false)
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
+
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(15,56); row.Size=UDim2.new(1,-30,0,36); row.Parent=Card
 	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
-	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=THEME.text
+	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="🔄 Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=13; refreshBtn.TextColor3=THEME.text
 	refreshBtn.BackgroundColor3=THEME.acc1; refreshBtn.AutoButtonColor=true; refreshBtn.Parent=row; Instance.new("UICorner",refreshBtn).CornerRadius=UDim.new(0,8)
-	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
+	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=13
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
-	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
-	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
-	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
+
+	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(15,96); holdRow.Size=UDim2.new(1,-30,0,28); holdRow.Parent=Card
+	local holdLbl=makeBadge("Maintenir RMB pour viser", THEME.warning); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
+	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-75,0,2)
 	holdToggle.MouseButton1Click:Connect(function() S.aimHold = not S.aimHold; setHold(S.aimHold) end)
-	local lockRow=Instance.new("Frame"); lockRow.BackgroundTransparency=1; lockRow.Position=UDim2.fromOffset(14,128); lockRow.Size=UDim2.new(1,-28,0,28); lockRow.Parent=Card
-	local lockLbl=makeBadge("Lock caméra (Scriptable)"); lockLbl.Position=UDim2.fromOffset(0,6); lockLbl.Parent=lockRow
-	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
+
+	local lockRow=Instance.new("Frame"); lockRow.BackgroundTransparency=1; lockRow.Position=UDim2.fromOffset(15,128); lockRow.Size=UDim2.new(1,-30,0,28); lockRow.Parent=Card
+	local lockLbl=makeBadge("Lock caméra (Scriptable)", THEME.acc1); lockLbl.Position=UDim2.fromOffset(0,6); lockLbl.Parent=lockRow
+	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-75,0,2)
 	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
-	local teamRow=Instance.new("Frame"); teamRow.BackgroundTransparency=1; teamRow.Position=UDim2.fromOffset(14,160); teamRow.Size=UDim2.new(1,-28,0,28); teamRow.Parent=Card
-	local teamLbl=makeBadge("Ignorer mes coéquipiers"); teamLbl.Position=UDim2.fromOffset(0,6); teamLbl.Parent=teamRow
-	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
+
+	local teamRow=Instance.new("Frame"); teamRow.BackgroundTransparency=1; teamRow.Position=UDim2.fromOffset(15,160); teamRow.Size=UDim2.new(1,-30,0,28); teamRow.Parent=Card
+	local teamLbl=makeBadge("Ignorer mes coéquipiers", THEME.danger); teamLbl.Position=UDim2.fromOffset(0,6); teamLbl.Parent=teamRow
+	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-75,0,2)
 	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
-	makeSlider(Card,"Lissage",0,100,S.aimSmooth,194,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
-	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),256,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
-	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,318,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
-	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-28,0,180); listHolder.Position=UDim2.fromOffset(14,360)
-	listHolder.BackgroundColor3=Color3.fromRGB(40,42,56); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
+
+	local circleRow=Instance.new("Frame"); circleRow.BackgroundTransparency=1; circleRow.Position=UDim2.fromOffset(15,192); circleRow.Size=UDim2.new(1,-30,0,28); circleRow.Parent=Card
+	local circleLbl=makeBadge("Afficher cercle de visée", THEME.ok); circleLbl.Position=UDim2.fromOffset(0,6); circleLbl.Parent=circleRow
+	local circleT,setCircle=makeToggle(circleRow,S.aimShowCircle); circleT.Position=UDim2.new(1,-75,0,2)
+	circleT.MouseButton1Click:Connect(function() 
+		S.aimShowCircle = not S.aimShowCircle
+		setCircle(S.aimShowCircle)
+		if S.aimShowCircle then
+			createAimCircle()
+		else
+			if S.aimCircle then
+				S.aimCircle:Destroy()
+				S.aimCircle = nil
+			end
+		end
+	end)
+
+	makeSlider(Card,"Lissage",0,100,S.aimSmooth,226,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
+	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),286,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
+	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,346,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
+	makeSlider(Card,"Rayon cercle hitbox",0,5,S.aimCircleRadius,406,function(v) 
+		S.aimCircleRadius=v
+		if S.aimCircle and S.aimCircle.Parent then
+			S.aimCircle.Size = UDim2.new(0, v * 50, 0, v * 50)
+		end
+	end,function(v) return v.." studs" end)
+
+	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-30,0,180); listHolder.Position=UDim2.fromOffset(15,460)
+	listHolder.BackgroundColor3=Color3.fromRGB(35,38,50); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
+
 	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-56,0,30); searchBox.Position=UDim2.fromOffset(8,8)
-	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
-	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
+	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo..."; searchBox.Text=""; searchBox.TextColor3=THEME.text
+	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=13; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
 	local searchIcon=Instance.new("TextLabel"); searchIcon.BackgroundTransparency=1; searchIcon.Text="🔎"; searchIcon.Font=Enum.Font.Gotham; searchIcon.TextSize=16; searchIcon.TextColor3=THEME.sub
 	searchIcon.Size=UDim2.fromOffset(22,30); searchIcon.Position=UDim2.fromOffset(10,8); searchIcon.TextXAlignment=Enum.TextXAlignment.Center; searchIcon.Parent=listHolder
 	local clearBtn=Instance.new("TextButton"); clearBtn.Size=UDim2.fromOffset(30,30); clearBtn.Position=UDim2.new(1,-38,0,8); clearBtn.Text="✕"; clearBtn.Font=Enum.Font.GothamBold
 	clearBtn.TextSize=16; clearBtn.TextColor3=THEME.text; clearBtn.BackgroundColor3=THEME.danger; clearBtn.Parent=listHolder; Instance.new("UICorner",clearBtn).CornerRadius=UDim.new(1,0)
+
 	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-48); listScroll.Position=UDim2.fromOffset(8,40)
 	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=listHolder
 	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
 	local listPad=Instance.new("UIPadding",listScroll); listPad.PaddingLeft=UDim.new(0,6); listPad.PaddingRight=UDim.new(0,6); listPad.PaddingTop=UDim.new(0,6); listPad.PaddingBottom=UDim.new(0,6)
 	local function resizeCanvas() local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listScroll.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
 	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun résultat."
-	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
+	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=13; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
+
 	local function matches(p, q)
 		if not q or q=="" then return true end
 		q = string.lower(q)
@@ -921,6 +1210,7 @@ do
 		local b = string.lower(p.Name)
 		return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
 	end
+
 	local function clearButtons() for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
 	local function rebuild(filterQ)
 		clearButtons()
@@ -931,11 +1221,15 @@ do
 				count += 1
 				local b=Instance.new("TextButton"); b.Size=UDim2.new(1,-12,0,30); b.TextXAlignment=Enum.TextXAlignment.Left
 				b.Text=string.format("%s  (@%s)", (p.DisplayName~="" and p.DisplayName) or p.Name, p.Name)
-				b.Font=Enum.Font.Gotham; b.TextSize=14; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listScroll
+				b.Font=Enum.Font.Gotham; b.TextSize=13; b.TextColor3=THEME.text; b.BackgroundColor3=THEME.soft; b.AutoButtonColor=true; b.Parent=listScroll
 				Instance.new("UICorner",b).CornerRadius=UDim.new(0,8)
 				b.MouseButton1Click:Connect(function()
 					S.aimTargetUserId=p.UserId; S.aimTargetLabel=(p.DisplayName~="" and p.DisplayName) or p.Name
 					dropdownBtn.Text="Cible : "..S.aimTargetLabel.."  ▾"; listHolder.Visible=false
+					-- Crée le cercle de hitbox pour la nouvelle cible
+					if S.hitboxOn and p.Character then
+						createCircleHitbox(p.Character)
+					end
 				end)
 			end
 		end
@@ -943,39 +1237,45 @@ do
 		resizeCanvas()
 		if S.aimTargetUserId and not Players:GetPlayerByUserId(S.aimTargetUserId) then
 			S.aimTargetUserId=nil; S.aimTargetLabel=nil; dropdownBtn.Text="Choisir une cible  ▾"
+			if S.hitboxCircle then
+				S.hitboxCircle:Destroy()
+				S.hitboxCircle = nil
+			end
 		end
 	end
+
 	dropdownBtn.MouseButton1Click:Connect(function() listHolder.Visible=not listHolder.Visible; if listHolder.Visible then rebuild(searchBox.Text) end end)
 	refreshBtn.MouseButton1Click:Connect(function() rebuild(searchBox.Text) end)
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	clearBtn.MouseButton1Click:Connect(function() searchBox.Text=""; rebuild("") end)
 	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
+
 	Toggle.MouseButton1Click:Connect(function()
 		S.aimOn = not S.aimOn; setT(S.aimOn)
 		if S.aimOn then aimbot_enable() else aimbot_disable() end
 	end)
 end
 
--- Anti-AFK
+-- Anti-AFK (UI)
 do
-	local Card=makeCard("🛡️ Anti-AFK","Empêche le kick AFK.",180)
+	local Card=makeCard("🛡️ Anti-AFK","Empêche le kick AFK : clic virtuel + micro-mouvement. Intervalle + jitter réglables.",190)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Intervalle (s)",30,1200,S.afkInterval,56,function(v) S.afkInterval=v end,function(v) return v.." s" end)
-	makeSlider(Card,"Jitter (±s)",0,600,S.afkJitter,118,function(v) S.afkJitter=v end,function(v) return "±"..v.." s" end)
+	makeSlider(Card,"Jitter (±s)",0,600,S.afkJitter,120,function(v) S.afkJitter=v end,function(v) return "±"..v.." s" end)
 	Toggle.MouseButton1Click:Connect(function()
 		S.afkOn = not S.afkOn; setT(S.afkOn)
 		if S.afkOn then antiAfk_enable() else antiAfk_disable() end
 	end)
 end
 
--- Click TP
+-- Click TP (ALT) UI
 do
-	local Card=makeCard("🖱️ Click TP (ALT)","Appuie sur ALT → TP au point visé.",170)
+	local Card=makeCard("🖱️ Click TP (ALT)","Appuie sur ALT → TP au point visé. Option centre caméra.",180)
 	local Toggle,setT=makeToggle(Card,false)
-	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
-	local lbl=makeBadge("Ray depuis centre caméra"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
-	local camT,setCam=makeToggle(row,S.ctUseCamCenter); camT.Position=UDim2.new(1,-58,0,2); camT.Size=UDim2.fromOffset(58,24)
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(15,56); row.Size=UDim2.new(1,-30,0,28); row.Parent=Card
+	local lbl=makeBadge("Ray depuis centre caméra", THEME.acc1); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
+	local camT,setCam=makeToggle(row,S.ctUseCamCenter); camT.Position=UDim2.new(1,-75,0,2)
 	camT.MouseButton1Click:Connect(function() S.ctUseCamCenter = not S.ctUseCamCenter; setCam(S.ctUseCamCenter) end)
 	makeSlider(Card,"Distance max",100,10000,S.ctMaxDist,96,function(v) S.ctMaxDist=v end,function(v) return v.." studs" end)
 	makeSlider(Card,"Offset hauteur", -20, 50, S.ctHeightOffset, 130, function(v) S.ctHeightOffset=v end, function(v) return v.." u" end)
@@ -998,14 +1298,16 @@ UIS.InputBegan:Connect(function(io,gp)
 	if gp or UIS:GetFocusedTextBox() then return end
 	if io.UserInputType==Enum.UserInputType.Keyboard then
 		local shift = UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
+		-- Toggle UI
 		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() return end
+
+		-- Panic Alt+P
 		if (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) and io.KeyCode==Enum.KeyCode.P then
 			S.speedOn=false; speed_disable()
 			S.flyOn=false; fly_disable()
 			S.lightOn=false; light_disable()
 			S.espOn=false; esp_disable()
 			S.hitboxOn=false; hitbox_disable()
-			S.aimEnhancedOn=false; aimEnhanced_disable()
 			S.tpFollow=false
 			S.noclipOn=false; noclip_disable()
 			S.ijOn=false; disconnect(S.ijConn); S.ijConn=nil
@@ -1015,6 +1317,8 @@ UIS.InputBegan:Connect(function(io,gp)
 			toggleUI(false)
 			return
 		end
+
+		-- Click TP (ALT)
 		if S.clickTPOn and (io.KeyCode==Enum.KeyCode.LeftAlt or io.KeyCode==Enum.KeyCode.RightAlt) then
 			task.spawn(function()
 				task.wait(0.03)
@@ -1025,8 +1329,13 @@ UIS.InputBegan:Connect(function(io,gp)
 	end
 end)
 
-Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset+20)
-Main.BackgroundTransparency = .06
-tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
+-- Animation d'entrée améliorée
+Main.BackgroundTransparency = .1
+Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset+30)
+tween(Main,.3,{
+	Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-30), 
+	BackgroundTransparency=0
+}):Play()
 
-print("[Baba HUB v6.2] ✅ Hitbox Circle INVISIBLE activé - Tire à côté = ça touche !")
+print("[Baba HUB v6.3] Aimbot Hitbox Circulaire activé • ESP amélioré • Anti-AFK • Click TP (ALT) • Design moderne ✅")
+print("[Baba HUB v6.3] Nouvelles fonctionnalités: Cercle de visée aimbot • Hitbox circulaire 3D • Dégradés UI")
