@@ -1,11 +1,11 @@
 --[[
-  👑 Baba HUB v6.4 — Aimbot Normal + Aimbot Amélioré (Hitbox Circle) • ESP • Speed • NoClip • Infinite Jump • Anti-AFK • Click TP
-  Modules: Speed • Fly • Light • ESP • Hitbox ÉTENDUE • TP • NoClip • InfiniteJump • Aimbot Normal • Aimbot Amélioré (Hitbox extensible) • AntiAFK • ClickTP
+  👑 Baba HUB v6.5 — Hitbox Circle FONCTIONNELLE • Aimbot Normal + Amélioré • ESP • Speed • Fly • NoClip • Anti-AFK • Click TP
+  HITBOX: Les cercles restent visibles même quand l'UI est cachée + Hitbox vraiment agrandie
   Raccourcis: "$"(⇧+4) • F2 • Insert • RightCtrl | Panic: Alt+P | Click TP: Alt
 ]]
 
-if _G.__BABA_HUB_V64 then return end
-_G.__BABA_HUB_V64 = true
+if _G.__BABA_HUB_V65 then return end
+_G.__BABA_HUB_V65 = true
 
 --== Services ==--
 local Players = game:GetService("Players")
@@ -24,7 +24,6 @@ local THEME = {
     bg = Color3.fromRGB(11,13,17),
     panel = Color3.fromRGB(18,22,31),
     soft = Color3.fromRGB(28,32,42),
-    stroke = Color3.fromRGB(255,255,255),
     text = Color3.fromRGB(238,241,255),
     sub = Color3.fromRGB(175,182,205),
     acc1 = Color3.fromRGB(120,160,255),
@@ -37,20 +36,13 @@ local THEME = {
 local S = {
     uiVisible = true,
     
-    -- Speed
-    speedOn=false, speed=22, minSpeed=16, maxSpeed=120,
-    
-    -- Fly
+    speedOn=false, speed=22,
     flyOn=false, flySpeed=65, flyVertical=45,
-    
-    -- Light
     lightOn=false,
-    
-    -- ESP
     espOn=false, espShowUsername=true, espMaxDist=2500, espShowAura=true, espShowLabels=true,
     
-    -- Hitbox ÉTENDUE (fonctionne avec l'aimbot amélioré)
-    hitboxOn=false, hitboxSize=10, hitboxTransparency=0.7,
+    -- Hitbox
+    hitboxOn=false, hitboxSize=10,
     
     -- TP
     tpSelectedUserId=nil, tpSelectedLabel=nil, tpFollow=false,
@@ -61,41 +53,29 @@ local S = {
     -- Infinite Jump
     ijOn=false, ijBoost=55,
     
-    -- Aimbot NORMAL
-    aimNormalOn=false,
-    aimNormalTarget=nil,
-    aimNormalSmooth=0,
-    aimNormalPredict=0.6,
-    aimNormalMaxDist=15000,
-    aimNormalHold=true,
-    aimNormalTeamCheck=false,
+    -- Aimbot Normal
+    aimNormalOn=false, aimNormalTarget=nil, aimNormalSmooth=0, aimNormalPredict=0.6, aimNormalMaxDist=15000, aimNormalHold=true, aimNormalTeamCheck=false,
     
-    -- Aimbot AMÉLIORÉ (avec hitbox circle)
-    aimEnhancedOn=false,
-    aimEnhancedTarget=nil,
-    aimEnhancedSmooth=0,
-    aimEnhancedPredict=0.6,
-    aimEnhancedMaxDist=15000,
-    aimEnhancedHold=true,
-    aimEnhancedTeamCheck=false,
-    aimEnhancedCircleRadius=3, -- Rayon du cercle de hitbox
-    aimEnhancedShowCircle=true, -- Afficher le cercle visuel
+    -- Aimbot Amélioré
+    aimEnhancedOn=false, aimEnhancedTarget=nil, aimEnhancedSmooth=0, aimEnhancedPredict=0.6, aimEnhancedMaxDist=15000, aimEnhancedHold=true, aimEnhancedTeamCheck=false, aimEnhancedCircleRadius=5, aimEnhancedShowCircle=true,
     
     -- Anti-AFK
     afkOn=false, afkInterval=240, afkJitter=30,
     
     -- Click TP
-    clickTPOn=false, ctUseCamCenter=false, ctMaxDist=2048, ctHeightOffset=3,
+    clickTPOn=false, ctMaxDist=2048, ctHeightOffset=3,
     
     -- Internals
     _playersCache = {},
+    _hitboxParts = {}, -- Stocke TOUS les HRP modifiés et leurs tailles originales
+    _hitboxCircles = {}, -- Cercles 3D visuels
     _aimNormalConn = nil,
     _aimEnhancedConn = nil,
-    _hitboxCircles = {}, -- Stocke les cercles de hitbox créés
     _hitboxConn = nil,
     _espConn = nil,
     _flyData = nil,
     _speedConn = nil,
+    _aimEnhancedCircleVisual = nil, -- Cercle UI
 }
 
 --== Utils ==--
@@ -117,7 +97,7 @@ end
 local function disconnect(c) if c then c:Disconnect() end end
 
 --== UI ==--
-local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv64"; safeParent(UI)
+local UI = Instance.new("ScreenGui"); UI.Name="BabaHUBv65"; safeParent(UI)
 
 local Main = Instance.new("Frame")
 Main.Size = UDim2.fromOffset(580, 1080)
@@ -135,7 +115,7 @@ Instance.new("UICorner", Main).CornerRadius = UDim.new(0,16)
 local stroke = Instance.new("UIStroke", Main)
 stroke.Thickness = 1.2
 stroke.Transparency = .14
-stroke.Color = THEME.stroke
+stroke.Color = Color3.fromRGB(255,255,255)
 
 -- Header
 local Header = Instance.new("Frame")
@@ -146,24 +126,24 @@ Header.Parent = Main
 
 local Title = Instance.new("TextLabel")
 Title.BackgroundTransparency = 1
-Title.Position = UDim2.fromOffset(16,12)
-Title.Size = UDim2.fromOffset(420,36)
+Title.Position = UDim2.fromOffset(16,10)
+Title.Size = UDim2.fromOffset(420,30)
 Title.Font = Enum.Font.GothamBlack
 Title.TextSize = 22
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.TextColor3 = THEME.text
-Title.Text = "👑 Baba HUB v6.4"
+Title.Text = "👑 Baba HUB v6.5"
 Title.Parent = Header
 
 local SubTitle = Instance.new("TextLabel")
 SubTitle.BackgroundTransparency = 1
-SubTitle.Position = UDim2.fromOffset(16,40)
+SubTitle.Position = UDim2.fromOffset(16,38)
 SubTitle.Size = UDim2.fromOffset(420,20)
 SubTitle.Font = Enum.Font.Gotham
 SubTitle.TextSize = 12
 SubTitle.TextXAlignment = Enum.TextXAlignment.Left
 SubTitle.TextColor3 = THEME.sub
-SubTitle.Text = "Aimbot Normal + Aimbot Amélioré (Hitbox Circle)"
+SubTitle.Text = "Hitbox Circle FONCTIONNELLE + Aimbot Amélioré"
 SubTitle.Parent = Header
 
 local HideBtn = Instance.new("TextButton")
@@ -221,7 +201,7 @@ local function makeCard(titleText, subtitleText, height, icon)
     local s = Instance.new("UIStroke",Card)
     s.Thickness = 1
     s.Transparency = .22
-    s.Color = THEME.stroke
+    s.Color = Color3.fromRGB(255,255,255)
     local T = Instance.new("TextLabel")
     T.BackgroundTransparency = 1
     T.Font = Enum.Font.GothamSemibold
@@ -337,9 +317,36 @@ local function makeSlider(parent, title, minV, maxV, defaultV, yOff, onChanged, 
     return {set=function(v) v=math.clamp(v,minV,maxV); local r=(v-minV)/(maxV-minV); setFromX(Bar.AbsoluteSize.X*r) end}
 end
 
---== FONCTIONS DE BASE (Speed, Fly, Light, etc.) ==--
+--== CACHE JOUEURS ==--
+local function rebuildPlayersCache()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            table.insert(list, p)
+        end
+    end
+    table.sort(list, function(a,b)
+        return string.lower(a.Name) < string.lower(b.Name)
+    end)
+    S._playersCache = list
+end
+rebuildPlayersCache()
+Players.PlayerAdded:Connect(rebuildPlayersCache)
+Players.PlayerRemoving:Connect(function(pl)
+    rebuildPlayersCache()
+    -- Nettoie les hitbox du joueur qui part
+    if S._hitboxParts[pl] then
+        S._hitboxParts[pl] = nil
+    end
+    if S._hitboxCircles[pl] then
+        if S._hitboxCircles[pl].Parent then
+            S._hitboxCircles[pl]:Destroy()
+        end
+        S._hitboxCircles[pl] = nil
+    end
+end)
 
--- Speed
+--== SPEED ==--
 local function speed_enable()
     local hum = getHum()
     S._speedConn = RS.Heartbeat:Connect(function()
@@ -354,7 +361,7 @@ local function speed_disable()
     if hum then hum.WalkSpeed = 16 end
 end
 
--- Fly (simplifié pour éviter les bugs)
+--== FLY ==--
 local function fly_enable()
     local char = getChar()
     local hrp = char:WaitForChild("HumanoidRootPart")
@@ -394,7 +401,6 @@ local function fly_enable()
         bg.CFrame = cam.CFrame
     end)
 end
-
 local function fly_disable()
     S.flyOn = false
     disconnect(S._flyConn)
@@ -406,7 +412,7 @@ local function fly_disable()
     end
 end
 
--- Light
+--== LIGHT ==--
 local lightBackup = nil
 local function light_enable()
     if not lightBackup then
@@ -431,7 +437,7 @@ local function light_disable()
     end
 end
 
--- ESP
+--== ESP ==--
 local function esp_enable()
     if S._espConn then return end
     S._espConn = RS.Heartbeat:Connect(function()
@@ -449,7 +455,6 @@ local function esp_enable()
                 end
                 hl.Enabled = S.espShowAura
                 
-                -- Billboard
                 local head = char:FindFirstChild("Head")
                 if head then
                     local bb = head:FindFirstChild("ESP_BBG")
@@ -499,9 +504,90 @@ local function esp_disable()
     end
 end
 
---== HITBOX ÉTENDUE (fonctionne avec l'aimbot amélioré) ==--
-local function clearAllHitboxCircles()
-    for _, circle in ipairs(S._hitboxCircles) do
+--== HITBOX ÉTENDUE (CORRIGÉE - Reste visible quand UI cachée) ==--
+local function createHitboxForPlayer(pl)
+    if not pl or pl == LP then return end
+    if not pl.Character then return end
+    
+    local char = pl.Character
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Sauvegarde la taille originale si pas déjà fait
+    if not S._hitboxParts[pl] then
+        S._hitboxParts[pl] = {
+            hrp = hrp,
+            originalSize = hrp.Size,
+            originalTransparency = hrp.Transparency,
+            originalCanCollide = hrp.CanCollide,
+            originalMaterial = hrp.Material,
+            originalColor = hrp.BrickColor
+        }
+    end
+    
+    -- AGGRANDIT VRAIMENT le HRP (ça affecte les tirs !)
+    hrp.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
+    hrp.Transparency = 0.5
+    hrp.CanCollide = false
+    hrp.Material = Enum.Material.Neon
+    hrp.BrickColor = BrickColor.new("Really red")
+    
+    -- Crée un cercle visuel 3D dans le workspace (pas dans l'UI !)
+    if not S._hitboxCircles[pl] or not S._hitboxCircles[pl].Parent then
+        local circle = Instance.new("Part")
+        circle.Name = "HitboxCircle_" .. pl.Name
+        circle.Anchored = false
+        circle.CanCollide = false
+        circle.Massless = true
+        circle.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
+        circle.Transparency = 0.6
+        circle.BrickColor = BrickColor.new("Really red")
+        circle.Material = Enum.Material.Neon
+        circle.Parent = workspace -- DANS LE WORKSPACE, pas dans l'UI !
+        
+        -- Cylinder mesh pour forme ronde
+        local mesh = Instance.new("CylinderMesh")
+        mesh.Scale = Vector3.new(1, 0.3, 1)
+        mesh.Parent = circle
+        
+        -- Weld pour suivre le joueur
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = circle
+        weld.Part1 = hrp
+        weld.Parent = circle
+        
+        S._hitboxCircles[pl] = circle
+    else
+        -- Met à jour la taille
+        S._hitboxCircles[pl].Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
+    end
+end
+
+local function updateAllHitboxes()
+    for _, pl in ipairs(S._playersCache) do
+        if pl ~= LP then
+            createHitboxForPlayer(pl)
+        end
+    end
+end
+
+local function removeAllHitboxes()
+    -- Restaure les HRP
+    for pl, data in pairs(S._hitboxParts) do
+        if data and data.hrp and data.hrp.Parent then
+            pcall(function()
+                data.hrp.Size = data.originalSize
+                data.hrp.Transparency = data.originalTransparency
+                data.hrp.CanCollide = data.originalCanCollide
+                data.hrp.Material = data.originalMaterial
+                data.hrp.BrickColor = data.originalColor
+            end)
+        end
+    end
+    S._hitboxParts = {}
+    
+    -- Détruit les cercles visuels
+    for pl, circle in pairs(S._hitboxCircles) do
         if circle and circle.Parent then
             circle:Destroy()
         end
@@ -509,108 +595,27 @@ local function clearAllHitboxCircles()
     S._hitboxCircles = {}
 end
 
-local function createHitboxCircleForPlayer(player)
-    if not player or not player.Character then return end
-    
-    local char = player.Character
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Vérifie si un cercle existe déjà pour ce joueur
-    local existingCircle = char:FindFirstChild("HitboxCircle")
-    if existingCircle then
-        existingCircle:Destroy()
-    end
-    
-    -- Crée un cercle/cylindre visible autour du HRP
-    local circle = Instance.new("Part")
-    circle.Name = "HitboxCircle"
-    circle.Anchored = false
-    circle.CanCollide = false
-    circle.Massless = true
-    circle.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
-    circle.Transparency = S.hitboxTransparency
-    circle.BrickColor = BrickColor.new("Really red")
-    circle.Material = Enum.Material.Neon
-    circle.Parent = char
-    
-    -- Utilise un CylinderMesh pour la forme circulaire
-    local mesh = Instance.new("CylinderMesh")
-    mesh.Scale = Vector3.new(1, 0.5, 1)
-    mesh.Parent = circle
-    
-    -- Attache au HRP avec un Weld
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = circle
-    weld.Part1 = hrp
-    weld.Parent = circle
-    
-    table.insert(S._hitboxCircles, circle)
-    
-    -- Rend aussi le HRP plus grand pour les hitbox de tir
-    hrp.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
-    hrp.Transparency = 0.5
-    hrp.CanCollide = false
-    
-    return circle
-end
-
-local function updateAllHitboxCircles()
-    -- Met à jour la taille des cercles existants
-    for _, circle in ipairs(S._hitboxCircles) do
-        if circle and circle.Parent then
-            circle.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
-        end
-    end
-    
-    -- Met à jour les HRP
-    for _, pl in ipairs(S._playersCache) do
-        if pl ~= LP and pl.Character then
-            local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
-                hrp.Transparency = 0.5
-                hrp.CanCollide = false
-            end
-        end
-    end
-end
-
 local function hitbox_enable()
     if S._hitboxConn then return end
+    updateAllHitboxes()
     
-    -- Crée des cercles pour tous les joueurs
-    for _, pl in ipairs(S._playersCache) do
-        if pl ~= LP then
-            createHitboxCircleForPlayer(pl)
-        end
-    end
-    
-    -- Crée des cercles pour les nouveaux joueurs
+    -- Rafraîchit périodiquement
     S._hitboxConn = RS.Heartbeat:Connect(function()
         if not S.hitboxOn then return end
-        for _, pl in ipairs(S._playersCache) do
-            if pl ~= LP and pl.Character then
-                local existing = pl.Character:FindFirstChild("HitboxCircle")
-                if not existing then
-                    createHitboxCircleForPlayer(pl)
-                end
-            end
-        end
+        updateAllHitboxes()
     end)
     
     -- Écoute les nouveaux personnages
-    local function onCharAdded(char)
-        local pl = Players:GetPlayerFromCharacter(char)
-        if pl and pl ~= LP then
-            task.wait(0.5)
-            createHitboxCircleForPlayer(pl)
+    local function onCharAdded(pl, char)
+        if pl ~= LP and S.hitboxOn then
+            task.wait(0.3)
+            createHitboxForPlayer(pl)
         end
     end
     
     for _, pl in ipairs(S._playersCache) do
         if pl ~= LP then
-            pl.CharacterAdded:Connect(onCharAdded)
+            pl.CharacterAdded:Connect(function(char) onCharAdded(pl, char) end)
         end
     end
 end
@@ -618,19 +623,7 @@ end
 local function hitbox_disable()
     disconnect(S._hitboxConn)
     S._hitboxConn = nil
-    clearAllHitboxCircles()
-    
-    -- Restaure les HRP
-    for _, pl in ipairs(S._playersCache) do
-        if pl ~= LP and pl.Character then
-            local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.Size = Vector3.new(2, 2, 1)
-                hrp.Transparency = 1
-                hrp.CanCollide = true
-            end
-        end
-    end
+    removeAllHitboxes()
 end
 
 --== AIMBOT NORMAL ==--
@@ -661,13 +654,11 @@ local function aimNormal_enable()
         
         if (camPos - targetPos).Magnitude > S.aimNormalMaxDist then return end
         
-        -- Prédiction
         if S.aimNormalPredict > 0 then
             local vel = target.AssemblyLinearVelocity
             targetPos = targetPos + vel * S.aimNormalPredict
         end
         
-        -- Smooth
         local want = CFrame.lookAt(camPos, targetPos)
         local s = math.clamp(S.aimNormalSmooth/100, 0, 1)
         if s <= 0 then
@@ -691,11 +682,10 @@ local function getAimEnhancedTarget()
     if not pl or not pl.Character then return nil end
     if S.aimEnhancedTeamCheck and pl.Team == LP.Team then return nil end
     
-    -- Vise le centre du cercle de hitbox si disponible
+    -- Vise le HRP (qui est agrandi par la hitbox)
     local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
     if hrp then return hrp end
     
-    -- Sinon vise la tête
     local head = pl.Character:FindFirstChild("Head")
     if head then return head end
     
@@ -703,7 +693,7 @@ local function getAimEnhancedTarget()
 end
 
 local function createAimCircleVisual()
-    -- Supprime l'ancien cercle visuel
+    -- Le cercle visuel est dans l'UI MAIS on le garde visible même quand le menu est caché
     if S._aimEnhancedCircleVisual then
         S._aimEnhancedCircleVisual:Destroy()
         S._aimEnhancedCircleVisual = nil
@@ -711,9 +701,17 @@ local function createAimCircleVisual()
     
     if not S.aimEnhancedShowCircle then return end
     
-    -- Crée un cercle visuel sur l'écran
+    -- Crée un ScreenGui séparé pour le cercle (indépendant du menu)
+    local circleGui = Instance.new("ScreenGui")
+    circleGui.Name = "AimCircleGui"
+    circleGui.ResetOnSpawn = false
+    circleGui.IgnoreGuiInset = true
+    circleGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    pcall(function() if syn and syn.protect_gui then syn.protect_gui(circleGui) end end)
+    circleGui.Parent = game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
+    
     local circle = Instance.new("ImageLabel")
-    circle.Name = "AimCircleVisual"
+    circle.Name = "AimCircle"
     circle.AnchorPoint = Vector2.new(0.5, 0.5)
     circle.Position = UDim2.new(0.5, 0, 0.5, 0)
     circle.BackgroundTransparency = 1
@@ -721,9 +719,8 @@ local function createAimCircleVisual()
     circle.ImageColor3 = Color3.fromRGB(255, 50, 50)
     circle.ImageTransparency = 0.5
     circle.ZIndex = 10
-    circle.Parent = UI
+    circle.Parent = circleGui
     
-    -- Taille basée sur le rayon
     local size = S.aimEnhancedCircleRadius * 100
     circle.Size = UDim2.new(0, size, 0, size)
     
@@ -734,7 +731,7 @@ local function createAimCircleVisual()
         while S._aimEnhancedCircleVisual and S._aimEnhancedCircleVisual.Parent and S.aimEnhancedShowCircle do
             local baseSize = S.aimEnhancedCircleRadius * 100
             for i = 1, 20 do
-                if not S._aimEnhancedCircleVisual then break end
+                if not S._aimEnhancedCircleVisual or not S._aimEnhancedCircleVisual.Parent then break end
                 local pulse = baseSize + math.sin(i * 0.5) * 10
                 S._aimEnhancedCircleVisual.Size = UDim2.new(0, pulse, 0, pulse)
                 task.wait(0.05)
@@ -763,25 +760,24 @@ local function aimEnhanced_enable()
         
         if (camPos - targetPos).Magnitude > S.aimEnhancedMaxDist then return end
         
-        -- Ajoute un offset aléatoire dans le cercle de hitbox
+        -- AJOUTE UN OFFSET ALÉATOIRE DANS LE CERCLE
+        -- Ça permet de viser n'importe où dans la hitbox agrandie
         if S.aimEnhancedCircleRadius > 0 then
             local randomAngle = math.random() * math.pi * 2
             local randomRadius = math.random() * S.aimEnhancedCircleRadius
             local offset = Vector3.new(
                 math.cos(randomAngle) * randomRadius,
-                math.random() * S.aimEnhancedCircleRadius * 0.5,
+                (math.random() - 0.5) * S.aimEnhancedCircleRadius,
                 math.sin(randomAngle) * randomRadius
             )
             targetPos = targetPos + offset
         end
         
-        -- Prédiction
         if S.aimEnhancedPredict > 0 then
             local vel = target.AssemblyLinearVelocity
             targetPos = targetPos + vel * S.aimEnhancedPredict
         end
         
-        -- Smooth
         local want = CFrame.lookAt(camPos, targetPos)
         local s = math.clamp(S.aimEnhancedSmooth/100, 0, 1)
         if s <= 0 then
@@ -789,11 +785,6 @@ local function aimEnhanced_enable()
         else
             local alpha = 1 - math.pow(1 - s, dt*60)
             cam.CFrame = cam.CFrame:Lerp(want, math.clamp(alpha,0,1))
-        end
-        
-        -- Met à jour le cercle visuel
-        if S._aimEnhancedCircleVisual then
-            S._aimEnhancedCircleVisual.Visible = true
         end
     end)
 end
@@ -840,29 +831,10 @@ local function clicktp_perform()
     
     local result = workspace:Raycast(origin, dir, params)
     local pos = result and result.Position or (origin + dir)
-    
-    -- Ajuste la hauteur
     pos = pos + Vector3.new(0, S.ctHeightOffset, 0)
     
     char:PivotTo(CFrame.new(pos))
 end
-
---== Cache joueurs ==--
-local function rebuildPlayersCache()
-    local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LP then
-            table.insert(list, p)
-        end
-    end
-    table.sort(list, function(a,b)
-        return string.lower(a.Name) < string.lower(b.Name)
-    end)
-    S._playersCache = list
-end
-rebuildPlayersCache()
-Players.PlayerAdded:Connect(rebuildPlayersCache)
-Players.PlayerRemoving:Connect(rebuildPlayersCache)
 
 --== UI CARDS ==--
 
@@ -870,7 +842,7 @@ Players.PlayerRemoving:Connect(rebuildPlayersCache)
 do
     local Card = makeCard("⚡ Vitesse","Vitesse constante et stable.",140)
     local Toggle, setT = makeToggle(Card, false)
-    makeSlider(Card, "Vitesse", S.minSpeed, S.maxSpeed, S.speed, 56, function(v) S.speed = v end)
+    makeSlider(Card, "Vitesse", 16, 120, S.speed, 56, function(v) S.speed = v end)
     Toggle.MouseButton1Click:Connect(function()
         S.speedOn = not S.speedOn
         setT(S.speedOn)
@@ -906,6 +878,7 @@ end
 do
     local Card = makeCard("🧭 ESP Joueurs","Highlight + pseudo + distance.",190)
     local Toggle, setT = makeToggle(Card, false)
+    
     local Row1 = Instance.new("Frame")
     Row1.BackgroundTransparency = 1
     Row1.Position = UDim2.fromOffset(14,56)
@@ -981,24 +954,25 @@ do
     end)
 end
 
--- Hitbox ÉTENDUE (UI)
+-- Hitbox Étendue
 do
-    local Card = makeCard("🎯 Hitbox Étendue","Agrandit la hitbox des joueurs (cercles rouges visibles). Marche avec Aimbot Amélioré.",200)
+    local Card = makeCard("🎯 Hitbox Étendue","Agrandit VRAIMENT la hitbox des joueurs ! Cercles 3D visibles. Reste actif même si UI cachée.",160)
     local Toggle, setT = makeToggle(Card, false)
     
-    makeSlider(Card, "Taille Hitbox", 2, 30, S.hitboxSize, 56, function(v) 
+    makeSlider(Card, "Taille Hitbox", 3, 30, S.hitboxSize, 56, function(v)
         S.hitboxSize = v
-        updateAllHitboxCircles()
-    end, function(v) return v.." studs" end)
-    
-    makeSlider(Card, "Transparence", 0.1, 1, S.hitboxTransparency, 118, function(v)
-        S.hitboxTransparency = v
-        for _, circle in ipairs(S._hitboxCircles) do
-            if circle and circle.Parent then
-                circle.Transparency = v
+        -- Met à jour tous les HRP et cercles
+        for pl, data in pairs(S._hitboxParts) do
+            if data and data.hrp and data.hrp.Parent then
+                data.hrp.Size = Vector3.new(v, v, v)
             end
         end
-    end, function(v) return string.format("%.1f", v) end)
+        for pl, circle in pairs(S._hitboxCircles) do
+            if circle and circle.Parent then
+                circle.Size = Vector3.new(v, v, v)
+            end
+        end
+    end, function(v) return v.." studs" end)
     
     Toggle.MouseButton1Click:Connect(function()
         S.hitboxOn = not S.hitboxOn
@@ -1013,45 +987,15 @@ end
 
 -- NoClip
 do
-    local Card = makeCard("🧱 NoClip","Traverse les murs. Maintenir X pour activer.",140)
+    local Card = makeCard("🧱 NoClip","Traverse les murs.",140)
     local Toggle, setT = makeToggle(Card, false)
-    local row = Instance.new("Frame")
-    row.BackgroundTransparency = 1
-    row.Position = UDim2.fromOffset(14,56)
-    row.Size = UDim2.new(1,-28,0,28)
-    row.Parent = Card
-    local lbl = Instance.new("TextLabel")
-    lbl.BackgroundTransparency = 1
-    lbl.Text = "Mode maintien (X)"
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 12
-    lbl.TextColor3 = THEME.sub
-    lbl.Position = UDim2.fromOffset(0,6)
-    lbl.Size = UDim2.fromOffset(200,16)
-    lbl.Parent = row
-    local holdT, setHold = makeToggle(row, S.noclipHold)
-    holdT.Position = UDim2.new(1,-60,0,2)
-    holdT.Size = UDim2.fromOffset(58,24)
-    holdT.MouseButton1Click:Connect(function()
-        S.noclipHold = not S.noclipHold
-        setHold(S.noclipHold)
-    end)
     Toggle.MouseButton1Click:Connect(function()
         S.noclipOn = not S.noclipOn
         setT(S.noclipOn)
-        if S.noclipOn then
-            local char = getChar()
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-        else
-            local char = getChar()
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
+        local char = getChar()
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not S.noclipOn
             end
         end
     end)
@@ -1068,12 +1012,11 @@ do
     end)
 end
 
--- AIMBOT NORMAL (UI)
+-- AIMBOT NORMAL
 do
-    local Card = makeCard("🎯 Aimbot NORMAL","Verrouille la tête. Maintien RMB pour viser.",380)
+    local Card = makeCard("🎯 Aimbot NORMAL","Verrouille la tête. Maintien RMB.",380)
     local Toggle, setT = makeToggle(Card, false)
     
-    -- Dropdown pour choisir la cible
     local row = Instance.new("Frame")
     row.BackgroundTransparency = 1
     row.Position = UDim2.fromOffset(14,56)
@@ -1103,7 +1046,6 @@ do
     dropdownBtn.Parent = row
     Instance.new("UICorner",dropdownBtn).CornerRadius = UDim.new(0,8)
     
-    -- Options
     local holdRow = Instance.new("Frame")
     holdRow.BackgroundTransparency = 1
     holdRow.Position = UDim2.fromOffset(14,96)
@@ -1152,7 +1094,6 @@ do
     makeSlider(Card, "Prédiction", 0, 100, math.floor(S.aimNormalPredict*100), 222, function(v) S.aimNormalPredict = v/100 end, function(v) return v.."%" end)
     makeSlider(Card, "Distance max", 500, 20000, S.aimNormalMaxDist, 282, function(v) S.aimNormalMaxDist = v end, function(v) return v.." studs" end)
     
-    -- Liste des joueurs
     local listHolder = Instance.new("ScrollingFrame")
     listHolder.Size = UDim2.new(1,-28,0,120)
     listHolder.Position = UDim2.fromOffset(14,340)
@@ -1207,20 +1148,15 @@ do
     Toggle.MouseButton1Click:Connect(function()
         S.aimNormalOn = not S.aimNormalOn
         setT(S.aimNormalOn)
-        if S.aimNormalOn then
-            aimNormal_enable()
-        else
-            aimNormal_disable()
-        end
+        if S.aimNormalOn then aimNormal_enable() else aimNormal_disable() end
     end)
 end
 
--- AIMBOT AMÉLIORÉ (UI)
+-- AIMBOT AMÉLIORÉ
 do
-    local Card = makeCard("🔥 Aimbot AMÉLIORÉ","Hitbox Circle : verrouille dans un cercle extensible autour du joueur. Combine avec Hitbox Étendue !",430)
+    local Card = makeCard("🔥 Aimbot AMÉLIORÉ","Hitbox Circle : verrouille dans un cercle. Tire à côté = kill quand même !",430)
     local Toggle, setT = makeToggle(Card, false)
     
-    -- Dropdown
     local row = Instance.new("Frame")
     row.BackgroundTransparency = 1
     row.Position = UDim2.fromOffset(14,56)
@@ -1250,7 +1186,6 @@ do
     dropdownBtn.Parent = row
     Instance.new("UICorner",dropdownBtn).CornerRadius = UDim.new(0,8)
     
-    -- Options
     local holdRow = Instance.new("Frame")
     holdRow.BackgroundTransparency = 1
     holdRow.Position = UDim2.fromOffset(14,96)
@@ -1303,7 +1238,7 @@ do
         end
     end)
     
-    makeSlider(Card, "Rayon du cercle", 0.5, 15, S.aimEnhancedCircleRadius, 162, function(v)
+    makeSlider(Card, "Rayon du cercle", 1, 20, S.aimEnhancedCircleRadius, 162, function(v)
         S.aimEnhancedCircleRadius = v
         if S._aimEnhancedCircleVisual then
             local size = v * 100
@@ -1315,7 +1250,6 @@ do
     makeSlider(Card, "Prédiction", 0, 100, math.floor(S.aimEnhancedPredict*100), 282, function(v) S.aimEnhancedPredict = v/100 end, function(v) return v.."%" end)
     makeSlider(Card, "Distance max", 500, 20000, S.aimEnhancedMaxDist, 342, function(v) S.aimEnhancedMaxDist = v end, function(v) return v.." studs" end)
     
-    -- Liste des joueurs
     local listHolder = Instance.new("ScrollingFrame")
     listHolder.Size = UDim2.new(1,-28,0,120)
     listHolder.Position = UDim2.fromOffset(14,400)
@@ -1370,11 +1304,7 @@ do
     Toggle.MouseButton1Click:Connect(function()
         S.aimEnhancedOn = not S.aimEnhancedOn
         setT(S.aimEnhancedOn)
-        if S.aimEnhancedOn then
-            aimEnhanced_enable()
-        else
-            aimEnhanced_disable()
-        end
+        if S.aimEnhancedOn then aimEnhanced_enable() else aimEnhanced_disable() end
     end)
 end
 
@@ -1425,7 +1355,7 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
--- Hide
+-- Hide (cache seulement le menu, PAS les hitbox)
 HideBtn.MouseButton1Click:Connect(function()
     UI.Enabled = false
 end)
@@ -1456,4 +1386,6 @@ UIS.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("[Baba HUB v6.4] Prêt ! Aimbot Normal + Aimbot Amélioré (Hitbox Circle) activés ✅")
+print("[Baba HUB v6.5] CORRIGÉ ! Hitbox reste visible quand UI cachée ✅")
+print("[Baba HUB v6.5] Hitbox Circle FONCTIONNELLE : tire à côté = kill ✅")
+print("[Baba HUB v6.5] Active 'Hitbox Étendue' + 'Aimbot Amélioré' pour tuer facilement !")
