@@ -1,8 +1,8 @@
 --[[
   👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK • Click TP (ALT)
-  Modules: Speed • Fly • Light • ESP (Highlight + pseudo+distance) • TP(+Follow) • NoClip • InfiniteJump • Hitbox • Aimbot Head (+Recherche) • AntiAFK • ClickTP
-  + NOUVEAU: Aimbot Amélioré (Hitbox Circle) - Agrandit la hitbox sans focus auto
-  Raccourcis UI: "$"(⇧+4) • F2 • Insert • RightCtrl  |  Panic: Alt+P  |  Click TP: Alt (si module ON)
+  Modules: Speed • Fly • Light • ESP • TP • NoClip • InfiniteJump • Hitbox • Aimbot Head • AntiAFK • ClickTP
+  + Aimbot Amélioré: Cercle visuel discret + Hitbox agrandie
+  Raccourcis: "$"(⇧+4) • F2 • Insert • RightCtrl | Panic: Alt+P | Click TP: Alt
 ]]
 
 if _G.__BABA_HUB_V62 then return end
@@ -61,7 +61,7 @@ local S = {
 	-- Light
 	lightOn=false, lightBackup=nil,
 
-	-- ESP (sans box 3D)
+	-- ESP
 	espOn=false, espConn=nil, espHz=20, espShowUsername=true, espMaxDist=2500, espShowAura=true, espShowLabels=true,
 
 	-- Hitbox
@@ -83,12 +83,13 @@ local S = {
 	aimSmooth=0, aimPredict=0.6, aimMaxDist=15000, aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true, aimTeamCheck=false, __prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
 
-	-- NOUVEAU: Aimbot Amélioré (Hitbox Circle) - PAS de focus, PAS de cible à choisir
+	-- Aimbot Amélioré (Hitbox agrandie + cercle visuel discret)
 	aimEnhancedOn=false,
-	aimEnhancedCircleSize=8, -- Taille du cercle de hitbox
-	aimEnhancedShowCircle=true, -- Afficher le cercle visuel
-	aimEnhancedCircles={}, -- Cercles 3D sur les joueurs
+	aimEnhancedSize=10, -- Taille de la hitbox agrandie
+	aimEnhancedShowCircle=true, -- Afficher un petit cercle sur l'écran
 	aimEnhancedConn=nil,
+	aimEnhancedCircleGui=nil, -- Le cercle sur l'écran
+	aimEnhancedOriginalHRP={}, -- Sauvegarde des HRP originaux
 
 	-- Anti-AFK
 	afkOn=false, afkConn=nil, afkAlive=false, afkThread=nil, afkInterval=240, afkJitter=30,
@@ -131,7 +132,7 @@ local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.Back
 local Title=Instance.new("TextLabel")
 Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v6.2 — Aimbot Hard-Lock + Hitbox Circle"; Title.Parent=Header
+Title.Text="👑 Baba HUB v6.2 — Aimbot + Hitbox Circle"; Title.Parent=Header
 local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
 local Grad = Instance.new("UIGradient", Flair)
 Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
@@ -368,10 +369,9 @@ rebuildPlayersCache()
 Players.PlayerAdded:Connect(rebuildPlayersCache)
 Players.PlayerRemoving:Connect(function(p)
 	rebuildPlayersCache()
-	-- Nettoie le cercle de hitbox amélioré
-	if S.aimEnhancedCircles[p] then
-		pcall(function() S.aimEnhancedCircles[p]:Destroy() end)
-		S.aimEnhancedCircles[p] = nil
+	-- Nettoie le HRP modifié si le joueur part
+	if S.aimEnhancedOriginalHRP[p] then
+		S.aimEnhancedOriginalHRP[p] = nil
 	end
 end)
 
@@ -478,85 +478,146 @@ local function aimbot_enable()
 end
 
 --============================================================================--
--- NOUVEAU: AIMBOT AMÉLIORÉ (HITBOX CIRCLE)
--- PAS de focus auto, PAS de cible à choisir
--- Juste des cercles autour des joueurs pour agrandir leur hitbox
+-- AIMBOT AMÉLIORÉ : Hitbox agrandie + Cercle visuel discret sur l'écran
+-- Agrandit le HRP des autres joueurs = tirs à côté touchent quand même
+-- Cercle subtil sur l'écran pour montrer que c'est actif
 --============================================================================--
-local function aimEnhanced_applyCircle(player)
+local function aimEnhanced_createCircle()
+	-- Supprime l'ancien cercle
+	if S.aimEnhancedCircleGui then
+		S.aimEnhancedCircleGui:Destroy()
+		S.aimEnhancedCircleGui = nil
+	end
+	
+	if not S.aimEnhancedShowCircle then return end
+	
+	-- Crée un ScreenGui dédié pour le cercle (indépendant du menu)
+	local circleGui = Instance.new("ScreenGui")
+	circleGui.Name = "AimEnhancedCircle"
+	circleGui.ResetOnSpawn = false
+	circleGui.IgnoreGuiInset = true
+	circleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	pcall(function() if syn and syn.protect_gui then syn.protect_gui(circleGui) end end)
+	circleGui.Parent = game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
+	
+	-- Cercle fin et discret au centre de l'écran
+	local circle = Instance.new("ImageLabel")
+	circle.Name = "Circle"
+	circle.AnchorPoint = Vector2.new(0.5, 0.5)
+	circle.Position = UDim2.fromScale(0.5, 0.5)
+	circle.Size = UDim2.fromOffset(60, 60) -- Petit cercle discret
+	circle.BackgroundTransparency = 1
+	circle.Image = "rbxassetid://3570695787" -- Image de cercle
+	circle.ImageColor3 = Color3.fromRGB(255, 80, 80)
+	circle.ImageTransparency = 0.75 -- Très transparent, discret
+	circle.ZIndex = 1
+	circle.Parent = circleGui
+	
+	-- Bordure fine (optionnelle, plus discrète)
+	local border = Instance.new("ImageLabel")
+	border.Name = "Border"
+	border.AnchorPoint = Vector2.new(0.5, 0.5)
+	border.Position = UDim2.fromScale(0.5, 0.5)
+	border.Size = UDim2.fromOffset(62, 62)
+	border.BackgroundTransparency = 1
+	border.Image = "rbxassetid://3570695787"
+	border.ImageColor3 = Color3.fromRGB(255, 50, 50)
+	border.ImageTransparency = 0.85
+	border.ZIndex = 0
+	border.Parent = circleGui
+	
+	S.aimEnhancedCircleGui = circleGui
+end
+
+local function aimEnhanced_applyHitbox(player)
 	if player == LP then return end
 	local char = player.Character
 	if not char then return end
 	local hrp = char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	
-	local size = S.aimEnhancedCircleSize
+	-- Sauvegarde l'état original du HRP
+	if not S.aimEnhancedOriginalHRP[player] then
+		S.aimEnhancedOriginalHRP[player] = {
+			hrp = hrp,
+			size = hrp.Size,
+			transparency = hrp.Transparency,
+			cancollide = hrp.CanCollide,
+			material = hrp.Material,
+			color = hrp.BrickColor
+		}
+	end
 	
-	-- Agrandit le HRP pour que les tirs touchent plus facilement
+	-- AGGRANDIT LE HRP (c'est ça qui compte pour les tirs !)
+	local size = S.aimEnhancedSize
 	hrp.Size = Vector3.new(size, size, size)
-	hrp.Transparency = 0.5
+	hrp.Transparency = 0.4 -- Légèrement visible
 	hrp.CanCollide = false
 	hrp.Material = Enum.Material.Neon
 	hrp.BrickColor = BrickColor.new("Really red")
-	
-	-- Crée ou met à jour le cercle visuel 3D
-	if not S.aimEnhancedCircles[player] or not S.aimEnhancedCircles[player].Parent then
-		local circle = Instance.new("Part")
-		circle.Name = "AimEnhancedCircle_" .. player.Name
-		circle.Anchored = false
-		circle.CanCollide = false
-		circle.Massless = true
-		circle.Size = Vector3.new(size, size * 0.2, size)
-		circle.Transparency = 0.6
-		circle.BrickColor = BrickColor.new("Really red")
-		circle.Material = Enum.Material.Neon
-		circle.Parent = workspace
-		
-		local mesh = Instance.new("CylinderMesh")
-		mesh.Scale = Vector3.new(1, 0.1, 1)
-		mesh.Parent = circle
-		
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = circle
-		weld.Part1 = hrp
-		weld.Parent = circle
-		
-		S.aimEnhancedCircles[player] = circle
-	else
-		S.aimEnhancedCircles[player].Size = Vector3.new(size, size * 0.2, size)
-		S.aimEnhancedCircles[player].Transparency = 0.6
-	end
 end
 
-local function aimEnhanced_removeAllCircles()
-	for player, circle in pairs(S.aimEnhancedCircles) do
-		if circle and circle.Parent then
-			circle:Destroy()
+local function aimEnhanced_restoreAll()
+	for player, data in pairs(S.aimEnhancedOriginalHRP) do
+		if data.hrp and data.hrp.Parent then
+			pcall(function()
+				data.hrp.Size = data.size
+				data.hrp.Transparency = data.transparency
+				data.hrp.CanCollide = data.cancollide
+				data.hrp.Material = data.material
+				data.hrp.BrickColor = data.color
+			end)
 		end
 	end
-	S.aimEnhancedCircles = {}
+	S.aimEnhancedOriginalHRP = {}
 end
 
 local function aimEnhanced_enable()
 	if S.aimEnhancedConn then return end
 	
-	-- Applique les cercles à tous les joueurs
+	-- Crée le cercle visuel discret
+	aimEnhanced_createCircle()
+	
+	-- Applique la hitbox agrandie à tous les joueurs
 	for _, pl in ipairs(S._playersCache) do
-		aimEnhanced_applyCircle(pl)
+		aimEnhanced_applyHitbox(pl)
 	end
 	
-	-- Rafraîchit en continu
+	-- Rafraîchit en continu pour les nouveaux joueurs
 	S.aimEnhancedConn = RS.Heartbeat:Connect(function()
 		if not S.aimEnhancedOn then return end
 		for _, pl in ipairs(S._playersCache) do
-			aimEnhanced_applyCircle(pl)
+			if pl ~= LP then
+				aimEnhanced_applyHitbox(pl)
+			end
 		end
 	end)
+	
+	-- Écoute les nouveaux personnages
+	for _, pl in ipairs(S._playersCache) do
+		if pl ~= LP then
+			pl.CharacterAdded:Connect(function(char)
+				if S.aimEnhancedOn then
+					task.wait(0.3)
+					aimEnhanced_applyHitbox(pl)
+				end
+			end)
+		end
+	end
 end
 
 local function aimEnhanced_disable()
 	disconnect(S.aimEnhancedConn)
 	S.aimEnhancedConn = nil
-	aimEnhanced_removeAllCircles()
+	
+	-- Restaure tous les HRP
+	aimEnhanced_restoreAll()
+	
+	-- Supprime le cercle visuel
+	if S.aimEnhancedCircleGui then
+		S.aimEnhancedCircleGui:Destroy()
+		S.aimEnhancedCircleGui = nil
+	end
 end
 
 --============================================================================--
@@ -723,17 +784,35 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
 end
 
--- NOUVEAU: Aimbot Amélioré (Hitbox Circle) - PAS de focus, PAS de cible
+-- Aimbot Amélioré (Hitbox agrandie + cercle discret)
 do
-	local Card=makeCard("🔥 Aimbot Amélioré (Hitbox Circle)","Agrandit la hitbox de TOUS les joueurs avec des cercles rouges. Tire à côté = ça touche ! PAS de focus auto, PAS de cible à choisir.",160)
+	local Card=makeCard("🔥 Aimbot Amélioré","Agrandit la hitbox de TOUS les joueurs. Cercle discret sur l'écran. Tire à côté = ça touche ! Même de loin.",160)
 	local Toggle,setT=makeToggle(Card,false)
 	
-	makeSlider(Card,"Taille du cercle",3,30,S.aimEnhancedCircleSize,56,function(v) 
-		S.aimEnhancedCircleSize=v
-		-- Met à jour les cercles existants
-		for _, circle in pairs(S.aimEnhancedCircles) do
-			if circle and circle.Parent then
-				circle.Size = Vector3.new(v, v*0.2, v)
+	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
+	local lbl=makeBadge("Cercle visuel discret"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
+	local circleT,setCircle=makeToggle(row,S.aimEnhancedShowCircle); circleT.Position=UDim2.new(1,-58,0,2); circleT.Size=UDim2.fromOffset(58,24)
+	circleT.MouseButton1Click:Connect(function() 
+		S.aimEnhancedShowCircle = not S.aimEnhancedShowCircle
+		setCircle(S.aimEnhancedShowCircle)
+		if S.aimEnhancedOn then
+			-- Recrée le cercle
+			if S.aimEnhancedCircleGui then
+				S.aimEnhancedCircleGui:Destroy()
+				S.aimEnhancedCircleGui = nil
+			end
+			if S.aimEnhancedShowCircle then
+				aimEnhanced_createCircle()
+			end
+		end
+	end)
+	
+	makeSlider(Card,"Taille hitbox",3,40,S.aimEnhancedSize,96,function(v) 
+		S.aimEnhancedSize=v
+		-- Met à jour tous les HRP déjà modifiés
+		for _, data in pairs(S.aimEnhancedOriginalHRP) do
+			if data.hrp and data.hrp.Parent then
+				data.hrp.Size = Vector3.new(v, v, v)
 			end
 		end
 	end,function(v) return v.." studs" end)
@@ -1009,4 +1088,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.2] Aimbot+recherche OK • Hitbox Circle OK • NoClip/InfiniteJump OK • Anti-AFK OK • Click TP (ALT) OK • UI animée ✅")
+print("[Baba HUB v6.2] ✅ Aimbot OK • Hitbox Circle OK • ESP OK • Speed/Fly OK • Anti-AFK OK • Click TP OK")
