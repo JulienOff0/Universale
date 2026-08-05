@@ -1,7 +1,6 @@
 --[[
-  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP constant • Speed stable • NoClip • Infinite Jump • Anti-AFK • Click TP (ALT)
-  Modules: Speed • Fly • Light • ESP • TP • NoClip • InfiniteJump • Hitbox • Aimbot Head • AntiAFK • ClickTP
-  + Aimbot Amélioré: Cercle visuel discret + Hitbox agrandie
+  👑 Baba HUB v6.2 — Aimbot Hard-Lock • ESP • Speed • Fly • NoClip • Infinite Jump • Anti-AFK • Click TP
+  + Aimbot Amélioré: Hitbox Circle fonctionnel (pièces invisibles autour des joueurs)
   Raccourcis: "$"(⇧+4) • F2 • Insert • RightCtrl | Panic: Alt+P | Click TP: Alt
 ]]
 
@@ -83,13 +82,13 @@ local S = {
 	aimSmooth=0, aimPredict=0.6, aimMaxDist=15000, aimHeadOffset=Vector3.new(0,0.2,0),
 	aimLockCam=true, aimTeamCheck=false, __prevCamType=nil, __prevCamSubject=nil, __camLocked=false,
 
-	-- Aimbot Amélioré (Hitbox agrandie + cercle visuel discret)
+	-- Aimbot Amélioré (Hitbox Parts INVISIBLES)
 	aimEnhancedOn=false,
-	aimEnhancedSize=10, -- Taille de la hitbox agrandie
-	aimEnhancedShowCircle=true, -- Afficher un petit cercle sur l'écran
+	aimEnhancedSize=10,
+	aimEnhancedShowCircle=true,
 	aimEnhancedConn=nil,
-	aimEnhancedCircleGui=nil, -- Le cercle sur l'écran
-	aimEnhancedOriginalHRP={}, -- Sauvegarde des HRP originaux
+	aimEnhancedCircleGui=nil,
+	aimEnhancedHitboxParts={}, -- [player] = {parts}
 
 	-- Anti-AFK
 	afkOn=false, afkConn=nil, afkAlive=false, afkThread=nil, afkInterval=240, afkJitter=30,
@@ -132,7 +131,7 @@ local Header=Instance.new("Frame"); Header.Size=UDim2.new(1,0,0,64); Header.Back
 local Title=Instance.new("TextLabel")
 Title.BackgroundTransparency=1; Title.Position=UDim2.fromOffset(16,12); Title.Size=UDim2.fromOffset(420,36)
 Title.Font=Enum.Font.GothamBlack; Title.TextSize=22; Title.TextXAlignment=Enum.TextXAlignment.Left; Title.TextColor3=THEME.text
-Title.Text="👑 Baba HUB v6.2 — Aimbot + Hitbox Circle"; Title.Parent=Header
+Title.Text="👑 Baba HUB v6.2 — Hitbox Circle"; Title.Parent=Header
 local Flair = Instance.new("Frame"); Flair.Size=UDim2.new(1,-24,0,2); Flair.Position=UDim2.fromOffset(12,58); Flair.BackgroundColor3=THEME.acc1; Flair.Parent=Main
 local Grad = Instance.new("UIGradient", Flair)
 Grad.Color = ColorSequence.new{ ColorSequenceKeypoint.new(0, THEME.acc1), ColorSequenceKeypoint.new(1, THEME.acc2) }
@@ -293,7 +292,7 @@ local function light_enable()
 end
 local function light_disable() if S.lightBackup then Lighting.GlobalShadows=S.lightBackup.GlobalShadows; Lighting.FogEnd=S.lightBackup.FogEnd; Lighting.Brightness=S.lightBackup.Brightness; Lighting.Ambient=S.lightBackup.Ambient end end
 
---== ESP (no box) ==--
+--== ESP ==--
 local ROLE_COLORS = { Murder=Color3.fromRGB(255,60,60), Murderer=Color3.fromRGB(255,60,60), Innocent=Color3.fromRGB(64,128,255), Sheriff=Color3.fromRGB(255,220,0), Detective=Color3.fromRGB(255,220,0) }
 local DEFAULT_COLOR = Color3.fromRGB(200,200,200)
 local ESP_REG = {}
@@ -369,9 +368,11 @@ rebuildPlayersCache()
 Players.PlayerAdded:Connect(rebuildPlayersCache)
 Players.PlayerRemoving:Connect(function(p)
 	rebuildPlayersCache()
-	-- Nettoie le HRP modifié si le joueur part
-	if S.aimEnhancedOriginalHRP[p] then
-		S.aimEnhancedOriginalHRP[p] = nil
+	if S.aimEnhancedHitboxParts[p] then
+		for _, part in ipairs(S.aimEnhancedHitboxParts[p]) do
+			if part and part.Parent then part:Destroy() end
+		end
+		S.aimEnhancedHitboxParts[p] = nil
 	end
 end)
 
@@ -381,11 +382,10 @@ local function esp_enable()
 	local function targetHz() local n=math.max(1,#S._playersCache); if n>20 then return 8 elseif n>10 then return 12 elseif n>5 then return 16 else return S.espHz end end
 	local acc, currHz = 0, targetHz()
 	S.espConn = RS.Heartbeat:Connect(function(dt) acc += dt; if math.random()<0.1 then currHz = targetHz() end; local step = 1/math.max(1,currHz); if acc >= step then esp_update(); acc = 0 end end)
-	Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function(c) task.wait(0.2); buildESPFor(p,c) end) if p.Character then buildESPFor(p,p.Character) end end)
 end
 local function esp_disable() disconnect(S.espConn); S.espConn=nil; for _,reg in pairs(ESP_REG) do if reg.bb then reg.bb.Enabled=false end; if reg.hl then reg.hl.Enabled=false end end end
 
---== Hitbox ==--
+--== Hitbox (originale, laissée intacte) ==--
 local function rememberHRP(hrp) if not hrp or S.hitboxOrig[hrp] then return end; S.hitboxOrig[hrp] = { Size=hrp.Size, Transparency=hrp.Transparency, Material=hrp.Material, CanCollide=hrp.CanCollide, BrickColor=hrp.BrickColor } end
 local function applyHitboxTo(hrp) if not hrp then return end; rememberHRP(hrp); hrp.Size=Vector3.new(S.hitboxSize,S.hitboxSize,S.hitboxSize); hrp.Transparency=.7; hrp.BrickColor=BrickColor.new("Really red"); hrp.Material=Enum.Material.Neon; hrp.CanCollide=false end
 local function restoreAllHitbox() for hrp,orig in pairs(S.hitboxOrig) do if hrp and hrp.Parent and orig then pcall(function() hrp.Size=orig.Size; hrp.Transparency=orig.Transparency; hrp.Material=orig.Material; hrp.CanCollide=orig.CanCollide; hrp.BrickColor=orig.BrickColor end) end end; S.hitboxOrig={} end
@@ -451,12 +451,10 @@ local function aimbot_enable()
 		local cam = workspace.CurrentCamera; if not cam then return end
 		if not aim_isActive() then cam_unlock(); return end
 		cam_lock()
-
 		local head = getTargetHead(); if not head or not head.Parent then return end
 		local camPos = cam.CFrame.Position
 		local targetPos = head.Position + S.aimHeadOffset
 		if (camPos - targetPos).Magnitude > S.aimMaxDist then return end
-
 		if S.aimPredict and S.aimPredict > 0 then
 			local vel = getVel(head)
 			if vel.Magnitude < 0.1 then
@@ -466,7 +464,6 @@ local function aimbot_enable()
 			end
 			targetPos = targetPos + vel * (math.clamp(S.aimPredict,0,1) * dt * 60/60)
 		end
-
 		local want = CFrame.lookAt(camPos, targetPos)
 		local s = math.clamp(S.aimSmooth/100, 0, 1)
 		if s <= 0 then cam.CFrame = want
@@ -478,20 +475,64 @@ local function aimbot_enable()
 end
 
 --============================================================================--
--- AIMBOT AMÉLIORÉ : Hitbox agrandie + Cercle visuel discret sur l'écran
--- Agrandit le HRP des autres joueurs = tirs à côté touchent quand même
--- Cercle subtil sur l'écran pour montrer que c'est actif
+-- AIMBOT AMÉLIORÉ - HITBOX PARTS INVISIBLES
+-- Crée des parts invisibles autour des joueurs qui interceptent les balles
+-- PAS de carrés rouges, PAS de focus auto
 --============================================================================--
+local function aimEnhanced_createPartsForPlayer(player)
+	if player == LP then return end
+	local char = player.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	
+	-- Supprime les anciennes parts
+	if S.aimEnhancedHitboxParts[player] then
+		for _, part in ipairs(S.aimEnhancedHitboxParts[player]) do
+			if part and part.Parent then part:Destroy() end
+		end
+	end
+	
+	local size = S.aimEnhancedSize
+	local parts = {}
+	
+	-- Crée une grande boîte invisible autour du HRP
+	local hitbox = Instance.new("Part")
+	hitbox.Name = "AimHitbox"
+	hitbox.Size = Vector3.new(size, size, size)
+	hitbox.CanCollide = true -- IMPORTANT: doit pouvoir être touché par les balles
+	hitbox.Transparency = 1 -- COMPLÈTEMENT INVISIBLE
+	hitbox.Anchored = false
+	hitbox.Massless = true
+	hitbox.Parent = char
+	
+	-- Attache au HRP
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = hitbox
+	weld.Part1 = hrp
+	weld.Parent = hitbox
+	
+	table.insert(parts, hitbox)
+	
+	S.aimEnhancedHitboxParts[player] = parts
+end
+
+local function aimEnhanced_removeAllParts()
+	for player, parts in pairs(S.aimEnhancedHitboxParts) do
+		for _, part in ipairs(parts) do
+			if part and part.Parent then part:Destroy() end
+		end
+	end
+	S.aimEnhancedHitboxParts = {}
+end
+
 local function aimEnhanced_createCircle()
-	-- Supprime l'ancien cercle
 	if S.aimEnhancedCircleGui then
 		S.aimEnhancedCircleGui:Destroy()
 		S.aimEnhancedCircleGui = nil
 	end
-	
 	if not S.aimEnhancedShowCircle then return end
 	
-	-- Crée un ScreenGui dédié pour le cercle (indépendant du menu)
 	local circleGui = Instance.new("ScreenGui")
 	circleGui.Name = "AimEnhancedCircle"
 	circleGui.ResetOnSpawn = false
@@ -500,106 +541,54 @@ local function aimEnhanced_createCircle()
 	pcall(function() if syn and syn.protect_gui then syn.protect_gui(circleGui) end end)
 	circleGui.Parent = game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
 	
-	-- Cercle fin et discret au centre de l'écran
 	local circle = Instance.new("ImageLabel")
 	circle.Name = "Circle"
 	circle.AnchorPoint = Vector2.new(0.5, 0.5)
 	circle.Position = UDim2.fromScale(0.5, 0.5)
-	circle.Size = UDim2.fromOffset(60, 60) -- Petit cercle discret
+	circle.Size = UDim2.fromOffset(60, 60)
 	circle.BackgroundTransparency = 1
-	circle.Image = "rbxassetid://3570695787" -- Image de cercle
+	circle.Image = "rbxassetid://3570695787"
 	circle.ImageColor3 = Color3.fromRGB(255, 80, 80)
-	circle.ImageTransparency = 0.75 -- Très transparent, discret
+	circle.ImageTransparency = 0.75
 	circle.ZIndex = 1
 	circle.Parent = circleGui
 	
-	-- Bordure fine (optionnelle, plus discrète)
-	local border = Instance.new("ImageLabel")
-	border.Name = "Border"
-	border.AnchorPoint = Vector2.new(0.5, 0.5)
-	border.Position = UDim2.fromScale(0.5, 0.5)
-	border.Size = UDim2.fromOffset(62, 62)
-	border.BackgroundTransparency = 1
-	border.Image = "rbxassetid://3570695787"
-	border.ImageColor3 = Color3.fromRGB(255, 50, 50)
-	border.ImageTransparency = 0.85
-	border.ZIndex = 0
-	border.Parent = circleGui
-	
 	S.aimEnhancedCircleGui = circleGui
-end
-
-local function aimEnhanced_applyHitbox(player)
-	if player == LP then return end
-	local char = player.Character
-	if not char then return end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hrp then return end
-	
-	-- Sauvegarde l'état original du HRP
-	if not S.aimEnhancedOriginalHRP[player] then
-		S.aimEnhancedOriginalHRP[player] = {
-			hrp = hrp,
-			size = hrp.Size,
-			transparency = hrp.Transparency,
-			cancollide = hrp.CanCollide,
-			material = hrp.Material,
-			color = hrp.BrickColor
-		}
-	end
-	
-	-- AGGRANDIT LE HRP (c'est ça qui compte pour les tirs !)
-	local size = S.aimEnhancedSize
-	hrp.Size = Vector3.new(size, size, size)
-	hrp.Transparency = 0.4 -- Légèrement visible
-	hrp.CanCollide = false
-	hrp.Material = Enum.Material.Neon
-	hrp.BrickColor = BrickColor.new("Really red")
-end
-
-local function aimEnhanced_restoreAll()
-	for player, data in pairs(S.aimEnhancedOriginalHRP) do
-		if data.hrp and data.hrp.Parent then
-			pcall(function()
-				data.hrp.Size = data.size
-				data.hrp.Transparency = data.transparency
-				data.hrp.CanCollide = data.cancollide
-				data.hrp.Material = data.material
-				data.hrp.BrickColor = data.color
-			end)
-		end
-	end
-	S.aimEnhancedOriginalHRP = {}
 end
 
 local function aimEnhanced_enable()
 	if S.aimEnhancedConn then return end
 	
-	-- Crée le cercle visuel discret
 	aimEnhanced_createCircle()
 	
-	-- Applique la hitbox agrandie à tous les joueurs
 	for _, pl in ipairs(S._playersCache) do
-		aimEnhanced_applyHitbox(pl)
+		aimEnhanced_createPartsForPlayer(pl)
 	end
 	
-	-- Rafraîchit en continu pour les nouveaux joueurs
 	S.aimEnhancedConn = RS.Heartbeat:Connect(function()
 		if not S.aimEnhancedOn then return end
 		for _, pl in ipairs(S._playersCache) do
 			if pl ~= LP then
-				aimEnhanced_applyHitbox(pl)
+				-- Vérifie si les parts existent encore
+				local existing = S.aimEnhancedHitboxParts[pl]
+				if not existing or #existing == 0 then
+					aimEnhanced_createPartsForPlayer(pl)
+				else
+					-- Vérifie que la première part existe encore
+					if not existing[1] or not existing[1].Parent then
+						aimEnhanced_createPartsForPlayer(pl)
+					end
+				end
 			end
 		end
 	end)
 	
-	-- Écoute les nouveaux personnages
 	for _, pl in ipairs(S._playersCache) do
 		if pl ~= LP then
 			pl.CharacterAdded:Connect(function(char)
 				if S.aimEnhancedOn then
 					task.wait(0.3)
-					aimEnhanced_applyHitbox(pl)
+					aimEnhanced_createPartsForPlayer(pl)
 				end
 			end)
 		end
@@ -609,11 +598,7 @@ end
 local function aimEnhanced_disable()
 	disconnect(S.aimEnhancedConn)
 	S.aimEnhancedConn = nil
-	
-	-- Restaure tous les HRP
-	aimEnhanced_restoreAll()
-	
-	-- Supprime le cercle visuel
+	aimEnhanced_removeAllParts()
 	if S.aimEnhancedCircleGui then
 		S.aimEnhancedCircleGui:Destroy()
 		S.aimEnhancedCircleGui = nil
@@ -636,17 +621,14 @@ local function disableIdledConnections()
 		end
 	end)
 end
-
 local function antiAfk_disable()
 	S.afkAlive = false
 	disconnect(S.afkConn); S.afkConn=nil
 	S.afkThread = nil
 end
-
 local function antiAfk_enable()
 	antiAfk_disable()
 	disableIdledConnections()
-
 	S.afkConn = LP.Idled:Connect(function()
 		local cam = workspace.CurrentCamera
 		pcall(function()
@@ -655,7 +637,6 @@ local function antiAfk_enable()
 			VU:Button2Up(Vector2.new(0,0),  cam and cam.CFrame or CFrame.new())
 		end)
 	end)
-
 	S.afkAlive = true
 	S.afkThread = task.spawn(function()
 		while S.afkAlive do
@@ -663,11 +644,9 @@ local function antiAfk_enable()
 			local base   = math.clamp(S.afkInterval or 240, 30, 1200)
 			local waitFor = base + (jitter>0 and math.random(-jitter, jitter) or 0)
 			waitFor = math.max(5, waitFor)
-
 			local elapsed = 0
 			while S.afkAlive and elapsed < waitFor do task.wait(1); elapsed += 1 end
 			if not S.afkAlive then break end
-
 			local cam = workspace.CurrentCamera
 			pcall(function()
 				if cam then cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(math.random(-3,3)), 0) end
@@ -678,18 +657,6 @@ local function antiAfk_enable()
 end
 
 --== Click Teleport (ALT) ==--
-local function ct_getRay()
-	local cam = workspace.CurrentCamera
-	if not cam then return nil end
-	if not S.ctUseCamCenter then
-		local m = LP:GetMouse()
-		if m and m.UnitRay then return m.UnitRay end
-	end
-	local vs = cam.ViewportSize
-	local ray = cam:ViewportPointToRay(vs.X/2, vs.Y/2)
-	return Ray.new(ray.Origin, ray.Direction)
-end
-
 local function ct_findHit(maxDist)
 	local cam = workspace.CurrentCamera; if not cam then return nil end
 	local origin, dir
@@ -709,17 +676,14 @@ local function ct_findHit(maxDist)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { getChar() }
 	params.IgnoreWater = false
-
 	local dist = math.clamp(S.ctMaxDist or 2048, 10, 100000)
 	local rc = workspace:Raycast(origin, dir * dist, params)
 	local pos = rc and rc.Position or (origin + dir * dist)
-
 	local from = pos + Vector3.new(0,500,0)
 	local down = workspace:Raycast(from, Vector3.new(0,-2000,0), params)
 	if down then pos = Vector3.new(pos.X, down.Position.Y, pos.Z) end
 	return pos
 end
-
 local function clicktp_perform()
 	local char=LP.Character; if not char then return end
 	local hrp=char:FindFirstChild("HumanoidRootPart"); local hum=char:FindFirstChildOfClass("Humanoid")
@@ -729,7 +693,6 @@ local function clicktp_perform()
 	local yoff = tonumber(S.ctHeightOffset or 3) or 3
 	local dest = hit + Vector3.new(0, math.clamp(yoff,-50,50), 0)
 	char:PivotTo(CFrame.new(dest))
-	print(string.format("[Baba HUB] Click TP → (%.1f, %.1f, %.1f)", dest.X, dest.Y, dest.Z))
 end
 
 --== UI Cards ==--
@@ -784,9 +747,9 @@ do
 	Toggle.MouseButton1Click:Connect(function() S.hitboxOn = not S.hitboxOn; setT(S.hitboxOn); if S.hitboxOn then hitbox_enable() else hitbox_disable() end end)
 end
 
--- Aimbot Amélioré (Hitbox agrandie + cercle discret)
+-- Aimbot Amélioré (Hitbox Parts INVISIBLES)
 do
-	local Card=makeCard("🔥 Aimbot Amélioré","Agrandit la hitbox de TOUS les joueurs. Cercle discret sur l'écran. Tire à côté = ça touche ! Même de loin.",160)
+	local Card=makeCard("🔥 Aimbot Amélioré","Hitbox INVISIBLE autour des joueurs. Tire à côté = ça touche ! PAS de focus, PAS de carrés rouges.",160)
 	local Toggle,setT=makeToggle(Card,false)
 	
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
@@ -796,23 +759,19 @@ do
 		S.aimEnhancedShowCircle = not S.aimEnhancedShowCircle
 		setCircle(S.aimEnhancedShowCircle)
 		if S.aimEnhancedOn then
-			-- Recrée le cercle
-			if S.aimEnhancedCircleGui then
-				S.aimEnhancedCircleGui:Destroy()
-				S.aimEnhancedCircleGui = nil
-			end
-			if S.aimEnhancedShowCircle then
-				aimEnhanced_createCircle()
-			end
+			if S.aimEnhancedCircleGui then S.aimEnhancedCircleGui:Destroy(); S.aimEnhancedCircleGui = nil end
+			if S.aimEnhancedShowCircle then aimEnhanced_createCircle() end
 		end
 	end)
 	
-	makeSlider(Card,"Taille hitbox",3,40,S.aimEnhancedSize,96,function(v) 
+	makeSlider(Card,"Taille hitbox",5,50,S.aimEnhancedSize,96,function(v) 
 		S.aimEnhancedSize=v
-		-- Met à jour tous les HRP déjà modifiés
-		for _, data in pairs(S.aimEnhancedOriginalHRP) do
-			if data.hrp and data.hrp.Parent then
-				data.hrp.Size = Vector3.new(v, v, v)
+		-- Met à jour les parts existantes
+		for player, parts in pairs(S.aimEnhancedHitboxParts) do
+			for _, part in ipairs(parts) do
+				if part and part.Parent then
+					part.Size = Vector3.new(v, v, v)
+				end
 			end
 		end
 	end,function(v) return v.." studs" end)
@@ -820,11 +779,7 @@ do
 	Toggle.MouseButton1Click:Connect(function() 
 		S.aimEnhancedOn = not S.aimEnhancedOn
 		setT(S.aimEnhancedOn)
-		if S.aimEnhancedOn then 
-			aimEnhanced_enable() 
-		else 
-			aimEnhanced_disable() 
-		end
+		if S.aimEnhancedOn then aimEnhanced_enable() else aimEnhanced_disable() end
 	end)
 end
 
@@ -921,36 +876,29 @@ end
 do
 	local Card=makeCard("🎯 Aimbot (Hard-Lock Head)","Liste + recherche → sélection → la caméra colle la tête (snap).",430)
 	local Toggle,setT=makeToggle(Card,false)
-
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,36); row.Parent=Card
 	local uiList=Instance.new("UIListLayout",row); uiList.FillDirection=Enum.FillDirection.Horizontal; uiList.Padding=UDim.new(0,8)
 	local refreshBtn=Instance.new("TextButton"); refreshBtn.Size=UDim2.new(0,104,1,0); refreshBtn.Text="Rafraîchir"; refreshBtn.Font=Enum.Font.GothamSemibold; refreshBtn.TextSize=14; refreshBtn.TextColor3=THEME.text
 	refreshBtn.BackgroundColor3=THEME.acc1; refreshBtn.AutoButtonColor=true; refreshBtn.Parent=row; Instance.new("UICorner",refreshBtn).CornerRadius=UDim.new(0,8)
 	local dropdownBtn=Instance.new("TextButton"); dropdownBtn.Size=UDim2.new(1,-212,1,0); dropdownBtn.Text="Choisir une cible  ▾"; dropdownBtn.Font=Enum.Font.Gotham; dropdownBtn.TextSize=14
 	dropdownBtn.TextColor3=THEME.text; dropdownBtn.BackgroundColor3=THEME.soft; dropdownBtn.AutoButtonColor=true; dropdownBtn.Parent=row; Instance.new("UICorner",dropdownBtn).CornerRadius=UDim.new(0,8)
-
 	local holdRow=Instance.new("Frame"); holdRow.BackgroundTransparency=1; holdRow.Position=UDim2.fromOffset(14,96); holdRow.Size=UDim2.new(1,-28,0,28); holdRow.Parent=Card
 	local holdLbl=makeBadge("Maintenir RMB pour viser"); holdLbl.Position=UDim2.fromOffset(0,6); holdLbl.Parent=holdRow
 	local holdToggle,setHold=makeToggle(holdRow,S.aimHold); holdToggle.Position=UDim2.new(1,-58,0,2); holdToggle.Size=UDim2.fromOffset(58,24)
 	holdToggle.MouseButton1Click:Connect(function() S.aimHold = not S.aimHold; setHold(S.aimHold) end)
-
 	local lockRow=Instance.new("Frame"); lockRow.BackgroundTransparency=1; lockRow.Position=UDim2.fromOffset(14,128); lockRow.Size=UDim2.new(1,-28,0,28); lockRow.Parent=Card
 	local lockLbl=makeBadge("Lock caméra (Scriptable)"); lockLbl.Position=UDim2.fromOffset(0,6); lockLbl.Parent=lockRow
 	local lockT,setLock=makeToggle(lockRow,S.aimLockCam); lockT.Position=UDim2.new(1,-58,0,2); lockT.Size=UDim2.fromOffset(58,24)
 	lockT.MouseButton1Click:Connect(function() S.aimLockCam = not S.aimLockCam; setLock(S.aimLockCam); if not S.aimLockCam then cam_unlock() end end)
-
 	local teamRow=Instance.new("Frame"); teamRow.BackgroundTransparency=1; teamRow.Position=UDim2.fromOffset(14,160); teamRow.Size=UDim2.new(1,-28,0,28); teamRow.Parent=Card
 	local teamLbl=makeBadge("Ignorer mes coéquipiers"); teamLbl.Position=UDim2.fromOffset(0,6); teamLbl.Parent=teamRow
 	local teamT,setTeam=makeToggle(teamRow,S.aimTeamCheck); teamT.Position=UDim2.new(1,-58,0,2); teamT.Size=UDim2.fromOffset(58,24)
 	teamT.MouseButton1Click:Connect(function() S.aimTeamCheck = not S.aimTeamCheck; setTeam(S.aimTeamCheck) end)
-
 	makeSlider(Card,"Lissage",0,100,S.aimSmooth,194,function(v) S.aimSmooth=v end,function(v) return v.."%"; end)
 	makeSlider(Card,"Prédiction",0,100,math.floor(S.aimPredict*100),256,function(v) S.aimPredict=v/100 end,function(v) return v.."%"; end)
 	makeSlider(Card,"Distance max",500,20000,S.aimMaxDist,318,function(v) S.aimMaxDist=v end,function(v) return v.." studs" end)
-
 	local listHolder=Instance.new("Frame"); listHolder.Size=UDim2.new(1,-28,0,180); listHolder.Position=UDim2.fromOffset(14,360)
 	listHolder.BackgroundColor3=Color3.fromRGB(40,42,56); listHolder.BorderSizePixel=0; listHolder.Visible=false; listHolder.Parent=Card; Instance.new("UICorner",listHolder).CornerRadius=UDim.new(0,10)
-
 	local searchBox=Instance.new("TextBox"); searchBox.Size=UDim2.new(1,-56,0,30); searchBox.Position=UDim2.fromOffset(8,8)
 	searchBox.BackgroundColor3=THEME.soft; searchBox.PlaceholderText="Rechercher un pseudo (@user / nom)"; searchBox.Text=""; searchBox.TextColor3=THEME.text
 	searchBox.ClearTextOnFocus=false; searchBox.Font=Enum.Font.Gotham; searchBox.TextSize=14; searchBox.Parent=listHolder; Instance.new("UICorner",searchBox).CornerRadius=UDim.new(0,8)
@@ -958,7 +906,6 @@ do
 	searchIcon.Size=UDim2.fromOffset(22,30); searchIcon.Position=UDim2.fromOffset(10,8); searchIcon.TextXAlignment=Enum.TextXAlignment.Center; searchIcon.Parent=listHolder
 	local clearBtn=Instance.new("TextButton"); clearBtn.Size=UDim2.fromOffset(30,30); clearBtn.Position=UDim2.new(1,-38,0,8); clearBtn.Text="✕"; clearBtn.Font=Enum.Font.GothamBold
 	clearBtn.TextSize=16; clearBtn.TextColor3=THEME.text; clearBtn.BackgroundColor3=THEME.danger; clearBtn.Parent=listHolder; Instance.new("UICorner",clearBtn).CornerRadius=UDim.new(1,0)
-
 	local listScroll=Instance.new("ScrollingFrame"); listScroll.Size=UDim2.new(1,-16,1,-48); listScroll.Position=UDim2.fromOffset(8,40)
 	listScroll.BackgroundTransparency=1; listScroll.BorderSizePixel=0; listScroll.ScrollBarThickness=6; listScroll.CanvasSize=UDim2.new(0,0,0,0); listScroll.Parent=listHolder
 	local listLayout=Instance.new("UIListLayout",listScroll); listLayout.Padding=UDim.new(0,6)
@@ -966,7 +913,6 @@ do
 	local function resizeCanvas() local total=0; for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then total += ch.AbsoluteSize.Y + listLayout.Padding.Offset end end; listScroll.CanvasSize=UDim2.new(0,0,0, math.max(total,0)) end
 	local emptyLabel=Instance.new("TextLabel"); emptyLabel.Size=UDim2.new(1,-12,0,28); emptyLabel.BackgroundTransparency=1; emptyLabel.Text="Aucun résultat."
 	emptyLabel.Font=Enum.Font.Gotham; emptyLabel.TextSize=14; emptyLabel.TextColor3=THEME.sub; emptyLabel.Visible=false; emptyLabel.Parent=listScroll
-
 	local function matches(p, q)
 		if not q or q=="" then return true end
 		q = string.lower(q)
@@ -975,7 +921,6 @@ do
 		local b = string.lower(p.Name)
 		return string.find(a, q, 1, true) ~= nil or string.find(b, q, 1, true) ~= nil
 	end
-
 	local function clearButtons() for _,ch in ipairs(listScroll:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end; emptyLabel.Visible=false end
 	local function rebuild(filterQ)
 		clearButtons()
@@ -1000,23 +945,21 @@ do
 			S.aimTargetUserId=nil; S.aimTargetLabel=nil; dropdownBtn.Text="Choisir une cible  ▾"
 		end
 	end
-
 	dropdownBtn.MouseButton1Click:Connect(function() listHolder.Visible=not listHolder.Visible; if listHolder.Visible then rebuild(searchBox.Text) end end)
 	refreshBtn.MouseButton1Click:Connect(function() rebuild(searchBox.Text) end)
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	clearBtn.MouseButton1Click:Connect(function() searchBox.Text=""; rebuild("") end)
 	Players.PlayerAdded:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
 	Players.PlayerRemoving:Connect(function() if listHolder.Visible then rebuild(searchBox.Text) end end)
-
 	Toggle.MouseButton1Click:Connect(function()
 		S.aimOn = not S.aimOn; setT(S.aimOn)
 		if S.aimOn then aimbot_enable() else aimbot_disable() end
 	end)
 end
 
--- Anti-AFK (UI)
+-- Anti-AFK
 do
-	local Card=makeCard("🛡️ Anti-AFK","Empêche le kick AFK : clic virtuel + micro-mouvement. Intervalle + jitter réglables.",180)
+	local Card=makeCard("🛡️ Anti-AFK","Empêche le kick AFK.",180)
 	local Toggle,setT=makeToggle(Card,false)
 	makeSlider(Card,"Intervalle (s)",30,1200,S.afkInterval,56,function(v) S.afkInterval=v end,function(v) return v.." s" end)
 	makeSlider(Card,"Jitter (±s)",0,600,S.afkJitter,118,function(v) S.afkJitter=v end,function(v) return "±"..v.." s" end)
@@ -1026,9 +969,9 @@ do
 	end)
 end
 
--- Click TP (ALT) UI
+-- Click TP
 do
-	local Card=makeCard("🖱️ Click TP (ALT)","Appuie sur ALT → TP au point visé. Option centre caméra.",170)
+	local Card=makeCard("🖱️ Click TP (ALT)","Appuie sur ALT → TP au point visé.",170)
 	local Toggle,setT=makeToggle(Card,false)
 	local row=Instance.new("Frame"); row.BackgroundTransparency=1; row.Position=UDim2.fromOffset(14,56); row.Size=UDim2.new(1,-28,0,28); row.Parent=Card
 	local lbl=makeBadge("Ray depuis centre caméra"); lbl.Position=UDim2.fromOffset(0,6); lbl.Parent=row
@@ -1056,7 +999,6 @@ UIS.InputBegan:Connect(function(io,gp)
 	if io.UserInputType==Enum.UserInputType.Keyboard then
 		local shift = UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
 		if (shift and io.KeyCode==Enum.KeyCode.Four) or io.KeyCode==Enum.KeyCode.F2 or io.KeyCode==Enum.KeyCode.Insert or io.KeyCode==Enum.KeyCode.RightControl then toggleUI() return end
-
 		if (UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt)) and io.KeyCode==Enum.KeyCode.P then
 			S.speedOn=false; speed_disable()
 			S.flyOn=false; fly_disable()
@@ -1073,7 +1015,6 @@ UIS.InputBegan:Connect(function(io,gp)
 			toggleUI(false)
 			return
 		end
-
 		if S.clickTPOn and (io.KeyCode==Enum.KeyCode.LeftAlt or io.KeyCode==Enum.KeyCode.RightAlt) then
 			task.spawn(function()
 				task.wait(0.03)
@@ -1088,4 +1029,4 @@ Main.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Po
 Main.BackgroundTransparency = .06
 tween(Main,.20,{Position=UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset, Main.Position.Y.Scale, Main.Position.Y.Offset-20), BackgroundTransparency=0}):Play()
 
-print("[Baba HUB v6.2] ✅ Aimbot OK • Hitbox Circle OK • ESP OK • Speed/Fly OK • Anti-AFK OK • Click TP OK")
+print("[Baba HUB v6.2] ✅ Hitbox Circle INVISIBLE activé - Tire à côté = ça touche !")
